@@ -173,6 +173,11 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
 
   @override
   Widget build(BuildContext context) {
+    // Kiểm tra xem đã có payment pending chưa — nếu có thì khoá nút.
+    final hasPending = ref.watch(paymentsProvider(widget.debtId)).maybeWhen(
+      data: (ps) => ps.any((p) => p.status == PaymentStatus.pending),
+      orElse: () => false,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -195,8 +200,17 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
         ] else
           const Text('Chủ nợ chưa có QR.',
               style: TextStyle(color: Colors.grey)),
+        if (hasPending)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'Đang chờ chủ nợ xác nhận giao dịch trước.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.orange),
+            ),
+          ),
         FilledButton(
-          onPressed: _isSending ? null : _markTransferred,
+          onPressed: (_isSending || hasPending) ? null : _markTransferred,
           child: _isSending
               ? const SizedBox(
                   height: 20,
@@ -204,7 +218,11 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                   child: CircularProgressIndicator(
                       strokeWidth: 2, color: Colors.white),
                 )
-              : Text('Tôi đã chuyển ${formatVnd(widget.netAmount)}'),
+              : Text(
+                  hasPending
+                      ? 'Đang chờ xác nhận...'
+                      : 'Tôi đã chuyển ${formatVnd(widget.netAmount)}',
+                ),
         ),
       ],
     );

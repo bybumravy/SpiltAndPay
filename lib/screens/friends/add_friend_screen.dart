@@ -24,6 +24,7 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
   bool _isAdding = false;
   AppUser? _foundUser;
   String? _searchError;
+  String _contactSearch = '';
 
   @override
   void initState() {
@@ -229,33 +230,59 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
                   style: Theme.of(context).textTheme.titleSmall),
             ),
           ),
+          // Ô tìm kiếm trong danh sách bạn bè
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: TextField(
+              decoration: const InputDecoration(
+                hintText: 'Tìm trong danh sách bạn bè...',
+                prefixIcon: Icon(Icons.search, size: 20),
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 8),
+              ),
+              onChanged: (v) => setState(() => _contactSearch = v.trim().toLowerCase()),
+            ),
+          ),
           SizedBox(
             height: 180,
             child: contactsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Lỗi: $e')),
               data: (list) {
+                final filtered = _contactSearch.isEmpty
+                    ? list
+                    : list
+                        .where((u) =>
+                            u.name.toLowerCase().contains(_contactSearch) ||
+                            u.email.toLowerCase().contains(_contactSearch))
+                        .toList();
                 if (list.isEmpty) {
                   return const Center(
                       child: Text('Chưa có bạn bè nào',
                           style: TextStyle(color: Colors.grey)));
                 }
+                if (filtered.isEmpty) {
+                  return const Center(
+                      child: Text('Không tìm thấy bạn bè nào',
+                          style: TextStyle(color: Colors.grey)));
+                }
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: list.length,
+                  itemCount: filtered.length,
                   itemBuilder: (_, i) => ListTile(
                     leading: CircleAvatar(
-                      child: Text(list[i].name.isNotEmpty
-                          ? list[i].name[0].toUpperCase()
+                      child: Text(filtered[i].name.isNotEmpty
+                          ? filtered[i].name[0].toUpperCase()
                           : '?'),
                     ),
-                    title: Text(list[i].name),
-                    subtitle: Text(list[i].email,
+                    title: Text(filtered[i].name),
+                    subtitle: Text(filtered[i].email,
                         style: const TextStyle(fontSize: 12)),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete_outline, color: Colors.grey),
                       tooltip: 'Xoá bạn bè',
-                      onPressed: () => _deleteContact(list[i]),
+                      onPressed: () => _deleteContact(filtered[i]),
                     ),
                   ),
                 );

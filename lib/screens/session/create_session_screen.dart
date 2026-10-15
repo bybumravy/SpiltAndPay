@@ -589,6 +589,7 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
   void _showMyQrCode(BuildContext context) {
     showDialog(
       context: context,
+      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         title: const Row(
           children: [
@@ -775,7 +776,8 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                   final name = _guestController.text.trim();
                   if (name.isEmpty) return;
                   widget.onAddGuest(name);
-                  Navigator.pop(context);
+                  // Clear text, không đóng sheet — cho phép thêm nhiều khách.
+                  _guestController.clear();
                 },
                 child: const Text('Thêm'),
               ),
@@ -837,7 +839,7 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                         color: Colors.blue),
                     onTap: () {
                       widget.onAddUser(filtered[i]);
-                      Navigator.pop(context);
+                      // Không đóng sheet — cho phép thêm nhiều người liên tiếp.
                     },
                   ),
                 );
