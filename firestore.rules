@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ─────────────────────────────────────────────────────
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    // ── users ────────────────────────────────────────────────────────────────
+    // Đọc: bất kỳ user đã đăng nhập (cần để tìm bạn bè theo email/uid).
+    // Ghi: chỉ chính chủ.
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(uid);
+
+      // contacts sub-collection: chính chủ đọc/xoá, hoặc bạn bè tự thêm/cập nhật thông tin của mình khi kết bạn 2 chiều.
+      match /contacts/{contactId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isSignedIn() &&
+                                 (isOwner(uid) || request.auth.uid == contactId);
+      }
+    }
+
+    // ── sessions ─────────────────────────────────────────────────────────────
+    // Đọc: thành viên trong memberUserIds.
+    // Tạo: user đã đăng nhập, phải tự thêm mình vào memberUserIds.
+    // Cập nhật, Xoá: chỉ creator.
+
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn() &&
+                     request.auth.uid in resource.data.memberUserIds;
+
+      allow create: if isSignedIn() &&
+                       request.auth.uid == request.resource.data.creatorId &&
+                       request.auth.uid in request.resource.data.memberUserIds;
+
+      allow update: if isSignedIn() &&
+                       request.auth.uid == resource.data.creatorId;
+
+      allow delete: if isSignedIn() &&
+                       request.auth.uid == resource.data.creatorId;
+
+      // members sub-collection: thành viên đọc, creator ghi.
+      match /members/{memberId} {
+        allow read: if isSignedIn() &&
+                       request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.memberUserIds;
+        allow write: if isSignedIn() &&
+                        request.auth.uid == get(/databases/$(database)/documents/sessions/$(sessionId)).data.creatorId;
+      }
+    }
+
+    // ── debts ────────────────────────────────────────────────────────────────
+    // Đọc/ghi: chỉ 2 người trong cặp nợ.
+
+    match /debts/{debtId} {
+      allow read: if isSignedIn() &&
+                     request.auth.uid in resource.data.participants;
+
+      // Ghi từ closeSession transaction (server-side logic qua client SDK).
+      allow write: if isSignedIn() &&
+                      (request.auth.uid == request.resource.data.userA ||
+                       request.auth.uid == request.resource.data.userB);
+
+      // payments sub-collection: 2 người trong cặp nợ.
+      match /payments/{paymentId} {
+        allow read: if isSignedIn() &&
+                       request.auth.uid in get(/databases/$(database)/documents/debts/$(debtId)).data.participants;
+
+        // Con nợ tạo payment, chủ nợ update (confirm).
+        allow create: if isSignedIn() &&
+                         request.auth.uid == request.resource.data.fromUserId;
+        allow update: if isSignedIn() &&
+                         request.auth.uid == resource.data.toUserId &&
+                         request.resource.data.status == 'confirmed';
+      }
+    }
+  }
+}

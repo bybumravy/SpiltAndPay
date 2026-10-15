@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "flutter": {"platforms":{"android":{"default":{"projectId":"splitandpay-2a413","appId":"1:193211348748:android:dc902e9bad26dba2cafb29","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"splitandpay-2a413","configurations":{"android":"1:193211348748:android:dc902e9bad26dba2cafb29"}}}}}}
