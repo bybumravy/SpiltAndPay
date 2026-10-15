@@ -95,11 +95,16 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   // ── Thêm thành viên ────────────────────────────────────────────────────────
 
   Future<void> _showAddMemberDialog() async {
+    final alreadyAdded = _members
+        .where((m) => m.userId != null)
+        .map((m) => m.userId!)
+        .toSet();
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => _AddMemberSheet(
         currentUid: widget.creatorUid,
+        alreadyAddedUids: alreadyAdded,
         onAddUser: (user) {
           if (_members.any((m) => m.userId == user.uid)) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -182,14 +187,15 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
       return;
     }
 
-    // Validate custom amounts.
+    // Validate custom: tổng nhập tay không được vượt quá total.
     if (_splitMode == SessionSplitMode.custom) {
-      final sum = _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
-      if (sum != total) {
+      final customSum =
+          _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
+      if (customSum > total) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Tổng chia (${formatVnd(sum)}) ≠ tổng bill (${formatVnd(total)}).'),
+                'Tổng tuỳ chỉnh (${formatVnd(customSum)}) vượt quá tổng bill (${formatVnd(total)}).'),
           ),
         );
         return;
@@ -203,9 +209,31 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
 
       // Tính amounts.
       final count = _members.length + 1; // +1 cho creator
-      final shares = _splitMode == SessionSplitMode.equal
-          ? splitEqual(total, count)
-          : null;
+      final List<int> amounts;
+
+      if (_splitMode == SessionSplitMode.equal) {
+        amounts = splitEqual(total, count);
+      } else {
+        // Custom: những ai đã nhập giữ nguyên, còn lại chia đều phần dư.
+        final customSum =
+            _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
+        final remaining = total - customSum;
+        final noCustomCount =
+            _members.where((m) => m.customAmount == null).length + 1; // +1 creator
+        final equalShares =
+            noCustomCount > 0 ? splitEqual(remaining, noCustomCount) : <int>[];
+        int equalIdx = 0;
+        // creator không có customAmount → lấy từ equalShares
+        final creatorAmount = equalShares.isNotEmpty ? equalShares[equalIdx++] : 0;
+        amounts = [creatorAmount];
+        for (final m in _members) {
+          if (m.customAmount != null) {
+            amounts.add(m.customAmount!);
+          } else {
+            amounts.add(equalIdx < equalShares.length ? equalShares[equalIdx++] : 0);
+          }
+        }
+      }
 
       // Creator member (status: self).
       final allMembers = <SessionMember>[
@@ -214,7 +242,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
           userId: widget.creatorUid,
           displayName: '',
           isGuest: false,
-          amountOwed: shares != null ? shares[0] : 0,
+          amountOwed: amounts[0],
           status: MemberStatus.self,
         ),
       ];
@@ -227,7 +255,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
           userId: m.userId,
           displayName: m.name,
           isGuest: m.isGuest,
-          amountOwed: shares != null ? shares[i + 1] : (m.customAmount ?? 0),
+          amountOwed: amounts[i + 1],
           status: m.isGuest ? MemberStatus.pending : MemberStatus.ledger,
         ));
       }
@@ -270,10 +298,29 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   Widget build(BuildContext context) {
     final total = int.tryParse(_totalController.text) ?? 0;
     final count = _members.length + 1;
-    final shares =
-        total > 0 && _splitMode == SessionSplitMode.equal
-            ? splitEqual(total, count)
-            : null;
+
+    // Tính preview amounts để hiển thị trong danh sách thành viên.
+    List<int>? shares;
+    if (total > 0) {
+      if (_splitMode == SessionSplitMode.equal) {
+        shares = splitEqual(total, count);
+      } else {
+        // Custom preview: nhập thủ công từng người, phần dư chia đều cho ai chưa nhập.
+        final customSum =
+            _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
+        final remaining = total - customSum;
+        final noCustomCount =
+            _members.where((m) => m.customAmount == null).length + 1;
+        if (noCustomCount > 0 && remaining >= 0) {
+          final eq = splitEqual(remaining, noCustomCount);
+          int eqIdx = 0;
+          shares = [eq[eqIdx++]];
+          for (final m in _members) {
+            shares.add(m.customAmount ?? eq[eqIdx < eq.length ? eqIdx++ : eq.length - 1]);
+          }
+        }
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Tạo phiên mới')),
@@ -515,11 +562,13 @@ class _CustomAmountFieldState extends State<_CustomAmountField> {
 
 class _AddMemberSheet extends ConsumerStatefulWidget {
   final String currentUid;
+  final Set<String> alreadyAddedUids;
   final ValueChanged<AppUser> onAddUser;
   final ValueChanged<String> onAddGuest;
 
   const _AddMemberSheet({
     required this.currentUid,
+    required this.alreadyAddedUids,
     required this.onAddUser,
     required this.onAddGuest,
   });
@@ -743,6 +792,12 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                   const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Lỗi: $e')),
               data: (list) {
+                // Loại bỏ creator và những người đã thêm vào phiên.
+                final filtered = list
+                    .where((u) =>
+                        u.uid != widget.currentUid &&
+                        !widget.alreadyAddedUids.contains(u.uid))
+                    .toList();
                 if (list.isEmpty) {
                   return const Center(
                     child: Padding(
@@ -755,21 +810,33 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                     ),
                   );
                 }
+                if (filtered.isEmpty) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Text(
+                        'Tất cả bạn bè đã được thêm vào phiên.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  );
+                }
                 return ListView.builder(
-                  itemCount: list.length,
+                  itemCount: filtered.length,
                   itemBuilder: (_, i) => ListTile(
                     leading: CircleAvatar(
-                      child: Text(list[i].name.isNotEmpty
-                          ? list[i].name[0].toUpperCase()
+                      child: Text(filtered[i].name.isNotEmpty
+                          ? filtered[i].name[0].toUpperCase()
                           : '?'),
                     ),
-                    title: Text(list[i].name),
-                    subtitle: Text(list[i].email,
+                    title: Text(filtered[i].name),
+                    subtitle: Text(filtered[i].email,
                         style: const TextStyle(fontSize: 12)),
                     trailing: const Icon(Icons.add_circle_outline,
                         color: Colors.blue),
                     onTap: () {
-                      widget.onAddUser(list[i]);
+                      widget.onAddUser(filtered[i]);
                       Navigator.pop(context);
                     },
                   ),

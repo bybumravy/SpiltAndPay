@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -290,7 +291,7 @@ class _EmailSearchTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -370,6 +371,13 @@ class _QrScanTab extends StatefulWidget {
 
 class _QrScanTabState extends State<_QrScanTab> {
   bool _handled = false;
+  final _controller = MobileScannerController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   void _onDetect(BarcodeCapture capture) {
     if (_handled || widget.isAdding) return;
@@ -381,11 +389,26 @@ class _QrScanTabState extends State<_QrScanTab> {
     });
   }
 
+  Future<void> _pickFromGallery() async {
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (picked == null) return;
+    final capture = await _controller.analyzeImage(picked.path);
+    if (!mounted) return;
+    final value = capture?.barcodes.firstOrNull?.rawValue;
+    if (value == null || value.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không tìm thấy mã QR trong ảnh.')),
+      );
+      return;
+    }
+    await widget.onScanned(value);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        MobileScanner(onDetect: _onDetect),
+        MobileScanner(controller: _controller, onDetect: _onDetect),
         if (widget.isAdding)
           const ColoredBox(
             color: Colors.black54,
@@ -401,6 +424,23 @@ class _QrScanTabState extends State<_QrScanTab> {
             decoration: BoxDecoration(
               border: Border.all(color: Colors.white, width: 2),
               borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 64,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.black54,
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Colors.white54),
+              ),
+              icon: const Icon(Icons.photo_library_outlined, size: 18),
+              label: const Text('Chọn ảnh từ thư viện'),
+              onPressed: widget.isAdding ? null : _pickFromGallery,
             ),
           ),
         ),

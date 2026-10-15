@@ -104,13 +104,12 @@ class SessionRepository {
             ? m.amountOwed   // member = userA, creator = userB → balance += δ
             : -m.amountOwed; // member = userB, creator = userA → balance -= δ
 
+        final sorted = [creatorId, memberUid]..sort();
         tx.set(
           debtRef,
           {
-            'userA': [creatorId, memberUid]..sort()
-              ..first, // userA = sorted[0]
-            'userB': [creatorId, memberUid]..sort()
-              ..last,
+            'userA': sorted[0],
+            'userB': sorted[1],
             'participants': [creatorId, memberUid],
             'balance': FieldValue.increment(delta),
             'updatedAt': FieldValue.serverTimestamp(),
