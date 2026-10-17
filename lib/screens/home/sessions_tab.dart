@@ -148,7 +148,8 @@ class _SessionTile extends ConsumerWidget {
             side: BorderSide(color: isOpen ? Colors.green : Colors.grey),
             padding: EdgeInsets.zero,
           ),
-          if (isCreator)
+          // Phiên đã đóng đã ghi nợ vào sổ nên không được xoá.
+          if (isCreator && isOpen)
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, size: 20),
               onSelected: (val) {

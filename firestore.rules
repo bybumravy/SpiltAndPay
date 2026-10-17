@@ -12,6 +12,19 @@ service cloud.firestore {
       return request.auth.uid == uid;
     }
 
+    function sessionPath(sid) {
+      return /databases/$(database)/documents/sessions/$(sid);
+    }
+
+    function debtPath(did) {
+      return /databases/$(database)/documents/debts/$(did);
+    }
+
+    // Các field thay đổi giữa bản mới và bản cũ chỉ nằm trong [keys].
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
     // ── users ────────────────────────────────────────────────────────────────
     // Đọc: bất kỳ user đã đăng nhập (cần để tìm bạn bè theo email/uid).
     // Ghi: chỉ chính chủ.
@@ -30,8 +43,9 @@ service cloud.firestore {
 
     // ── sessions ─────────────────────────────────────────────────────────────
     // Đọc: thành viên trong memberUserIds.
-    // Tạo: user đã đăng nhập, phải tự thêm mình vào memberUserIds.
-    // Cập nhật, Xoá: chỉ creator.
+    // Tạo: chỉ creator, phiên mới luôn "open", tổng bill > 0.
+    // Sửa: creator chỉ được đổi tên, hoặc chuyển open → closed (không sửa tiền).
+    // Xoá: creator, chỉ khi phiên còn mở (chưa ghi nợ).
 
     match /sessions/{sessionId} {
       allow read: if isSignedIn() &&
@@ -39,46 +53,163 @@ service cloud.firestore {
 
       allow create: if isSignedIn() &&
                        request.auth.uid == request.resource.data.creatorId &&
-                       request.auth.uid in request.resource.data.memberUserIds;
+                       request.auth.uid in request.resource.data.memberUserIds &&
+                       request.resource.data.status == 'open' &&
+                       request.resource.data.totalAmount is int &&
+                       request.resource.data.totalAmount > 0;
 
       allow update: if isSignedIn() &&
-                       request.auth.uid == resource.data.creatorId;
+                       request.auth.uid == resource.data.creatorId &&
+                       (onlyChanges(['title']) ||
+                        (resource.data.status == 'open' &&
+                         request.resource.data.status == 'closed' &&
+                         onlyChanges(['status', 'closedAt'])));
 
       allow delete: if isSignedIn() &&
-                       request.auth.uid == resource.data.creatorId;
+                       request.auth.uid == resource.data.creatorId &&
+                       resource.data.status == 'open';
 
-      // members sub-collection: thành viên đọc, creator ghi.
+      // members: thành viên đọc. Creator tạo cùng lúc với phiên (số tiền hợp lệ,
+      // không vượt tổng bill). Sau đó chỉ đổi được status/paidAt, không sửa tiền.
       match /members/{memberId} {
         allow read: if isSignedIn() &&
-                       request.auth.uid in get(/databases/$(database)/documents/sessions/$(sessionId)).data.memberUserIds;
-        allow write: if isSignedIn() &&
-                        request.auth.uid == get(/databases/$(database)/documents/sessions/$(sessionId)).data.creatorId;
+                       request.auth.uid in get(sessionPath(sessionId)).data.memberUserIds;
+
+        allow create: if isSignedIn() &&
+                         getAfter(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
+                         request.resource.data.amountOwed is int &&
+                         request.resource.data.amountOwed >= 0 &&
+                         request.resource.data.amountOwed <= getAfter(sessionPath(sessionId)).data.totalAmount &&
+                         request.resource.data.amountPaid is int &&
+                         request.resource.data.amountPaid >= 0 &&
+                         request.resource.data.amountPaid <= getAfter(sessionPath(sessionId)).data.totalAmount;
+
+        allow update: if isSignedIn() &&
+                         get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
+                         onlyChanges(['status', 'paidAt']);
+
+        allow delete: if isSignedIn() &&
+                         get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
+                         get(sessionPath(sessionId)).data.status == 'open';
       }
     }
 
     // ── debts ────────────────────────────────────────────────────────────────
-    // Đọc/ghi: chỉ 2 người trong cặp nợ.
+    // `balance` KHÔNG bao giờ được ghi tự do. Nó chỉ đổi theo đúng 2 cách,
+    // mỗi cách gắn với một bản ghi bất biến:
+    //   1. Đóng phiên   → debts/{id}/entries/{sessionId}  (creator tạo)
+    //   2. Xác nhận trả → debts/{id}/payments/{paymentId} (chủ nợ xác nhận)
+    // và độ thay đổi của balance phải bằng đúng số tiền trong bản ghi đó.
+
+    // Số dư cũ (0 nếu khoản nợ chưa tồn tại).
+    function oldBalance() {
+      return resource == null ? 0 : resource.data.balance;
+    }
+
+    // Đúng 1 bản ghi entries mới (tạo trong cùng lần ghi) và balance đổi khớp nó.
+    function closingEntryMatches(debtId) {
+      let sid = request.resource.data.lastEntryId;
+      let entryPath = /databases/$(database)/documents/debts/$(debtId)/entries/$(sid);
+      let entry = getAfter(entryPath).data;
+      return !exists(entryPath) &&
+             entry.fromUserId in [request.resource.data.userA, request.resource.data.userB] &&
+             entry.toUserId in [request.resource.data.userA, request.resource.data.userB] &&
+             request.resource.data.balance - oldBalance() ==
+               (entry.fromUserId == request.resource.data.userA ? entry.amount : -entry.amount);
+    }
 
     match /debts/{debtId} {
       allow read: if isSignedIn() &&
                      request.auth.uid in resource.data.participants;
 
-      // Ghi từ closeSession transaction (server-side logic qua client SDK).
-      allow write: if isSignedIn() &&
-                      (request.auth.uid == request.resource.data.userA ||
-                       request.auth.uid == request.resource.data.userB);
+      // Tạo khoản nợ mới: chỉ qua đóng phiên.
+      allow create: if isSignedIn() &&
+                       request.resource.data.userA < request.resource.data.userB &&
+                       debtId == request.resource.data.userA + '_' + request.resource.data.userB &&
+                       request.resource.data.participants == [request.resource.data.userA, request.resource.data.userB] &&
+                       !('pendingPaymentId' in request.resource.data) &&
+                       closingEntryMatches(debtId);
 
-      // payments sub-collection: 2 người trong cặp nợ.
+      allow update: if isSignedIn() &&
+                       request.auth.uid in resource.data.participants &&
+                       (
+                         // (a) Con nợ đánh dấu "Tôi đã chuyển": chỉ gắn pendingPaymentId.
+                         (onlyChanges(['pendingPaymentId']) &&
+                          !('pendingPaymentId' in resource.data) &&
+                          getAfter(/databases/$(database)/documents/debts/$(debtId)/payments/$(request.resource.data.pendingPaymentId)).data.fromUserId == request.auth.uid) ||
+
+                         // (b) Chủ nợ xác nhận payment đang chờ: balance đổi đúng bằng số tiền.
+                         (onlyChanges(['balance', 'pendingPaymentId', 'updatedAt']) &&
+                          !('pendingPaymentId' in request.resource.data) &&
+                          confirmMatches(debtId)) ||
+
+                         // (c) Đóng phiên: balance đổi đúng bằng entry mới.
+                         (onlyChanges(['balance', 'lastEntryId', 'updatedAt']) &&
+                          closingEntryMatches(debtId))
+                       );
+
+      allow delete: if false;
+
+      function confirmMatches(debtId) {
+        let pid = resource.data.pendingPaymentId;
+        let paymentPath = /databases/$(database)/documents/debts/$(debtId)/payments/$(pid);
+        let payment = get(paymentPath).data;
+        return getAfter(paymentPath).data.status == 'confirmed' &&
+               payment.status == 'pending' &&
+               payment.toUserId == request.auth.uid &&
+               request.resource.data.balance - resource.data.balance ==
+                 (payment.fromUserId == resource.data.userA ? -payment.amount : payment.amount);
+      }
+
+      // Bản ghi cộng nợ của từng phiên: bất biến, chỉ creator của phiên đang đóng tạo.
+      match /entries/{entryId} {
+        allow read: if isSignedIn() &&
+                       request.auth.uid in get(debtPath(debtId)).data.participants;
+
+        allow create: if isSignedIn() &&
+                         entryId == request.resource.data.sessionId &&
+                         request.resource.data.fromUserId != request.resource.data.toUserId &&
+                         request.resource.data.amount is int &&
+                         request.resource.data.amount > 0 &&
+                         request.resource.data.amount <= get(sessionPath(entryId)).data.totalAmount &&
+                         get(sessionPath(entryId)).data.creatorId == request.auth.uid &&
+                         get(sessionPath(entryId)).data.status == 'open' &&
+                         getAfter(sessionPath(entryId)).data.status == 'closed' &&
+                         request.resource.data.fromUserId in get(sessionPath(entryId)).data.memberUserIds &&
+                         request.resource.data.toUserId in get(sessionPath(entryId)).data.memberUserIds &&
+                         debtId == (request.resource.data.fromUserId < request.resource.data.toUserId
+                                      ? request.resource.data.fromUserId + '_' + request.resource.data.toUserId
+                                      : request.resource.data.toUserId + '_' + request.resource.data.fromUserId);
+
+        allow update, delete: if false;
+      }
+
+      // payments: con nợ tạo (đúng số đang nợ), chủ nợ xác nhận (không sửa số tiền).
       match /payments/{paymentId} {
         allow read: if isSignedIn() &&
-                       request.auth.uid in get(/databases/$(database)/documents/debts/$(debtId)).data.participants;
+                       request.auth.uid in get(debtPath(debtId)).data.participants;
 
-        // Con nợ tạo payment, chủ nợ update (confirm).
         allow create: if isSignedIn() &&
-                         request.auth.uid == request.resource.data.fromUserId;
+                         request.auth.uid == request.resource.data.fromUserId &&
+                         request.resource.data.fromUserId != request.resource.data.toUserId &&
+                         request.resource.data.fromUserId in get(debtPath(debtId)).data.participants &&
+                         request.resource.data.toUserId in get(debtPath(debtId)).data.participants &&
+                         request.resource.data.status == 'pending' &&
+                         request.resource.data.amount is int &&
+                         request.resource.data.amount > 0 &&
+                         request.resource.data.amount ==
+                           (request.resource.data.fromUserId == get(debtPath(debtId)).data.userA
+                              ? get(debtPath(debtId)).data.balance
+                              : -get(debtPath(debtId)).data.balance) &&
+                         getAfter(debtPath(debtId)).data.pendingPaymentId == paymentId;
+
         allow update: if isSignedIn() &&
                          request.auth.uid == resource.data.toUserId &&
-                         request.resource.data.status == 'confirmed';
+                         resource.data.status == 'pending' &&
+                         request.resource.data.status == 'confirmed' &&
+                         onlyChanges(['status', 'confirmedAt']);
+
+        allow delete: if false;
       }
     }
   }

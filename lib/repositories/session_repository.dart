@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/firebase_providers.dart';
+import '../core/settlement.dart';
 import '../models/debt.dart';
 import '../models/session.dart';
 import '../models/session_member.dart';
@@ -76,48 +77,71 @@ class SessionRepository {
     required List<SessionMember> members,
   }) async {
     await _db.runTransaction((tx) async {
-      // Cập nhật phiên → closed.
       final sessionRef = _sessions.doc(sessionId);
+
+      // Chặn đóng 2 lần (sẽ ghi nợ trùng).
+      final snap = await tx.get(sessionRef);
+      final sessionData = snap.data();
+      if (sessionData?['status'] == 'closed') {
+        throw StateError('Phiên đã được đóng trước đó.');
+      }
+
+      // Tổng phần phải trả của mọi thành viên phải khớp tổng bill đã lưu,
+      // nếu không thì dữ liệu phiên bị sai → không ghi nợ.
+      final totalAmount = (sessionData?['totalAmount'] as num?)?.toInt();
+      final totalOwed = members.fold<int>(0, (s, m) => s + m.amountOwed);
+      if (totalAmount != null && totalOwed != totalAmount) {
+        throw StateError(
+            'Tổng phần chia ($totalOwed) không khớp tổng bill ($totalAmount).');
+      }
+
       tx.update(sessionRef, {
         'status': 'closed',
         'closedAt': FieldValue.serverTimestamp(),
       });
 
-      for (final m in members) {
-        final memberRef =
-            sessionRef.collection('members').doc(m.memberId);
-
-        if (m.isGuest || m.userId == null || m.userId == creatorId) {
-          // Guest hoặc chính creator — chỉ đổi status, không ghi debt.
-          tx.update(memberRef, {'status': MemberStatus.paid.name});
-          continue;
-        }
-
-        // App member — ghi nợ tích lũy.
-        final memberUid = m.userId!;
-        final debtId = Debt.docId(creatorId, memberUid);
-        final debtRef = _db.collection('debts').doc(debtId);
-
-        // Delta: dương trong balance có nghĩa userA nợ userB.
-        // Ta muốn ghi: memberUid nợ creatorId.
-        final delta = memberUid.compareTo(creatorId) < 0
-            ? m.amountOwed   // member = userA, creator = userB → balance += δ
-            : -m.amountOwed; // member = userB, creator = userA → balance -= δ
-
-        final sorted = [creatorId, memberUid]..sort();
+      // Ghi nợ theo danh sách chuyển tiền ít nhất giữa các thành viên.
+      // Mỗi khoản gồm 1 bản ghi bất biến (entries) + cộng dồn vào balance;
+      // rules bắt buộc balance đổi đúng bằng số tiền của entry.
+      for (final t in settleSession(creatorId: creatorId, members: members)) {
+        final sorted = [t.from, t.to]..sort();
+        final debtRef = _db.collection('debts').doc(Debt.docId(t.from, t.to));
+        tx.set(debtRef.collection('entries').doc(sessionId), {
+          'sessionId': sessionId,
+          'fromUserId': t.from, // con nợ
+          'toUserId': t.to, // chủ nợ
+          'amount': t.amount,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
         tx.set(
           debtRef,
           {
             'userA': sorted[0],
             'userB': sorted[1],
-            'participants': [creatorId, memberUid],
-            'balance': FieldValue.increment(delta),
+            'participants': sorted,
+            'balance': FieldValue.increment(Debt.balanceDelta(
+              debtorUid: t.from,
+              creditorUid: t.to,
+              amount: t.amount,
+            )),
+            'lastEntryId': sessionId,
             'updatedAt': FieldValue.serverTimestamp(),
           },
           SetOptions(merge: true),
         );
+      }
 
-        tx.update(memberRef, {'status': MemberStatus.ledger.name});
+      for (final m in members) {
+        final memberRef = sessionRef.collection('members').doc(m.memberId);
+        if (m.isGuest) continue; // guest giữ nguyên pending, creator tự đánh dấu đã thu
+        tx.update(
+          memberRef,
+          {
+            'status': (m.userId == null || m.userId == creatorId)
+                ? MemberStatus.paid.name
+                : MemberStatus.ledger.name,
+          },
+        );
       }
     });
   }

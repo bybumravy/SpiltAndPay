@@ -34,46 +34,66 @@ class DebtRepository {
             s.docs.map((d) => Payment.fromMap(d.id, d.data())).toList());
   }
 
-  /// Con nợ bấm "Tôi đã chuyển": tạo payment pending.
+  /// Con nợ bấm "Tôi đã chuyển": tạo payment pending cho đúng số đang nợ.
+  ///
+  /// Chạy trong transaction và kiểm tra trên dữ liệu hiện tại của server:
+  ///  - không còn nợ → từ chối (tránh tạo payment sau khi đã trả đủ),
+  ///  - đã có payment chờ xác nhận → từ chối (tránh trùng).
   Future<void> markTransferred({
     required String debtId,
     required String fromUid,
     required String toUid,
-    required int amount,
     required String paymentId,
   }) {
-    return _debts.doc(debtId).collection('payments').doc(paymentId).set({
-      'fromUserId': fromUid,
-      'toUserId': toUid,
-      'amount': amount,
-      'status': PaymentStatus.pending.name,
-      'createdAt': FieldValue.serverTimestamp(),
+    return _db.runTransaction((tx) async {
+      final debtRef = _debts.doc(debtId);
+      final snap = await tx.get(debtRef);
+      final data = snap.data();
+      if (data == null) throw StateError('Không tìm thấy khoản nợ.');
+
+      final balance = (data['balance'] as num).toInt();
+      final owed = fromUid == data['userA'] ? balance : -balance;
+      if (owed <= 0) throw StateError('Bạn không còn nợ khoản này.');
+      if (data['pendingPaymentId'] != null) {
+        throw StateError('Đang có giao dịch chờ xác nhận.');
+      }
+
+      tx.set(debtRef.collection('payments').doc(paymentId), {
+        'fromUserId': fromUid,
+        'toUserId': toUid,
+        'amount': owed,
+        'status': PaymentStatus.pending.name,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      tx.update(debtRef, {'pendingPaymentId': paymentId});
     });
   }
 
   /// Chủ nợ bấm "Đã nhận": xác nhận payment + trừ balance trong transaction.
+  /// Số tiền lấy từ payment đã lưu; chỉ xác nhận được payment đang pending.
   Future<void> confirmPayment({
     required String debtId,
     required String paymentId,
-    required int amount,
     required bool debtorIsUserA, // true → balance giảm, false → balance tăng
   }) async {
     await _db.runTransaction((tx) async {
-      final paymentRef = _debts
-          .doc(debtId)
-          .collection('payments')
-          .doc(paymentId);
       final debtRef = _debts.doc(debtId);
+      final paymentRef = debtRef.collection('payments').doc(paymentId);
+
+      final snap = await tx.get(paymentRef);
+      final data = snap.data();
+      if (data == null || data['status'] != PaymentStatus.pending.name) {
+        throw StateError('Khoản thanh toán đã được xử lý.');
+      }
+      final amount = (data['amount'] as num).toInt();
 
       tx.update(paymentRef, {
         'status': PaymentStatus.confirmed.name,
         'confirmedAt': FieldValue.serverTimestamp(),
       });
-
-      // Trừ balance: nếu debtorIsUserA thì balance -= amount, ngược lại += amount.
-      final delta = debtorIsUserA ? -amount : amount;
       tx.update(debtRef, {
-        'balance': FieldValue.increment(delta),
+        'balance': FieldValue.increment(debtorIsUserA ? -amount : amount),
+        'pendingPaymentId': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
     });

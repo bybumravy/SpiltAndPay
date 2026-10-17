@@ -31,6 +31,16 @@ class Debt {
     return '${sorted[0]}_${sorted[1]}';
   }
 
+  /// Độ thay đổi của [balance] khi [debtorUid] nợ thêm [creditorUid] [amount].
+  /// Dương → balance tăng (userA nợ thêm userB), âm → giảm.
+  static int balanceDelta({
+    required String debtorUid,
+    required String creditorUid,
+    required int amount,
+  }) {
+    return debtorUid.compareTo(creditorUid) < 0 ? amount : -amount;
+  }
+
   /// Trả về số tiền [currentUserId] đang nợ phía bên kia.
   /// Số dương = đang nợ, số âm = người kia đang nợ mình.
   int amountOwedBy(String currentUserId) {

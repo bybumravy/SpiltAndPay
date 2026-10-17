@@ -1,11 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/bill_ocr.dart';
 import '../../core/money.dart';
 import '../../models/app_user.dart';
 import '../../models/session.dart';
@@ -29,6 +31,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   SessionSplitMode _splitMode = SessionSplitMode.equal;
   bool _isSaving = false;
   bool _isOcring = false;
+  bool _multiPayer = false; // có người khác (ngoài creator) cũng ứng tiền
 
   // Danh sách thành viên thêm vào (ngoài creator).
   final List<_MemberEntry> _members = [];
@@ -51,26 +54,9 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
 
     setState(() => _isOcring = true);
     try {
-      final inputImage = InputImage.fromFilePath(picked.path);
-      final recognizer = TextRecognizer();
-      final result = await recognizer.processImage(inputImage);
-      await recognizer.close();
+      final scan = await scanBill(File(picked.path));
 
-      // Tìm số tiền lớn nhất trong văn bản (giả định đó là tổng bill).
-      final amounts = <int>[];
-      final numPattern = RegExp(r'[\d.,]+');
-      for (final block in result.blocks) {
-        for (final line in block.lines) {
-          final text = line.text.replaceAll('.', '').replaceAll(',', '');
-          final match = numPattern.firstMatch(text);
-          if (match != null) {
-            final val = int.tryParse(match.group(0)!);
-            if (val != null && val >= 1000) amounts.add(val);
-          }
-        }
-      }
-
-      if (amounts.isEmpty) {
+      if (scan.total == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Không nhận ra số tiền nào từ ảnh.')),
@@ -79,8 +65,16 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         return;
       }
 
-      amounts.sort((a, b) => b.compareTo(a));
-      if (mounted) _totalController.text = amounts.first.toString();
+      if (mounted) {
+        _totalController.text = scan.total.toString();
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(scan.confident
+              ? 'Đã đọc tổng tiền: ${formatVnd(scan.total!)}. Kiểm tra lại nhé.'
+              : 'Không thấy dòng "Tổng cộng", tạm lấy số lớn nhất: '
+                  '${formatVnd(scan.total!)}. Hãy kiểm tra lại.'),
+        ));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -202,47 +196,44 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
       }
     }
 
+    // Validate số tiền đã ứng của các thành viên khác.
+    final othersPaid = _multiPayer
+        ? _members.fold<int>(0, (s, m) => s + (m.isGuest ? 0 : (m.paidAmount ?? 0)))
+        : 0;
+    if (othersPaid > total) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Tổng tiền đã ứng (${formatVnd(othersPaid)}) vượt quá tổng bill (${formatVnd(total)}).'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
     try {
       final sessionId = newUuid();
       final now = DateTime.now();
 
       // Tính amounts.
-      final count = _members.length + 1; // +1 cho creator
-      final List<int> amounts;
+      final amounts = computeShares(
+        total: total,
+        customAmounts: [for (final m in _members) m.customAmount],
+        custom: _splitMode == SessionSplitMode.custom,
+      );
 
-      if (_splitMode == SessionSplitMode.equal) {
-        amounts = splitEqual(total, count);
-      } else {
-        // Custom: những ai đã nhập giữ nguyên, còn lại chia đều phần dư.
-        final customSum =
-            _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
-        final remaining = total - customSum;
-        final noCustomCount =
-            _members.where((m) => m.customAmount == null).length + 1; // +1 creator
-        final equalShares =
-            noCustomCount > 0 ? splitEqual(remaining, noCustomCount) : <int>[];
-        int equalIdx = 0;
-        // creator không có customAmount → lấy từ equalShares
-        final creatorAmount = equalShares.isNotEmpty ? equalShares[equalIdx++] : 0;
-        amounts = [creatorAmount];
-        for (final m in _members) {
-          if (m.customAmount != null) {
-            amounts.add(m.customAmount!);
-          } else {
-            amounts.add(equalIdx < equalShares.length ? equalShares[equalIdx++] : 0);
-          }
-        }
-      }
+      // Lưu tên thật của người tạo để người khác xem phiên không thấy tên rỗng.
+      final me = await ref.read(userRepositoryProvider).findByUid(widget.creatorUid);
 
       // Creator member (status: self).
       final allMembers = <SessionMember>[
         SessionMember(
           memberId: widget.creatorUid,
           userId: widget.creatorUid,
-          displayName: '',
+          displayName: me?.name ?? '',
           isGuest: false,
           amountOwed: amounts[0],
+          amountPaid: total - othersPaid,
           status: MemberStatus.self,
         ),
       ];
@@ -256,6 +247,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
           displayName: m.name,
           isGuest: m.isGuest,
           amountOwed: amounts[i + 1],
+          amountPaid: (_multiPayer && !m.isGuest) ? (m.paidAmount ?? 0) : 0,
           status: m.isGuest ? MemberStatus.pending : MemberStatus.ledger,
         ));
       }
@@ -297,28 +289,18 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   @override
   Widget build(BuildContext context) {
     final total = int.tryParse(_totalController.text) ?? 0;
-    final count = _members.length + 1;
 
     // Tính preview amounts để hiển thị trong danh sách thành viên.
     List<int>? shares;
     if (total > 0) {
-      if (_splitMode == SessionSplitMode.equal) {
-        shares = splitEqual(total, count);
-      } else {
-        // Custom preview: nhập thủ công từng người, phần dư chia đều cho ai chưa nhập.
-        final customSum =
-            _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
-        final remaining = total - customSum;
-        final noCustomCount =
-            _members.where((m) => m.customAmount == null).length + 1;
-        if (noCustomCount > 0 && remaining >= 0) {
-          final eq = splitEqual(remaining, noCustomCount);
-          int eqIdx = 0;
-          shares = [eq[eqIdx++]];
-          for (final m in _members) {
-            shares.add(m.customAmount ?? eq[eqIdx < eq.length ? eqIdx++ : eq.length - 1]);
-          }
-        }
+      try {
+        shares = computeShares(
+          total: total,
+          customAmounts: [for (final m in _members) m.customAmount],
+          custom: _splitMode == SessionSplitMode.custom,
+        );
+      } on ArgumentError {
+        shares = null; // số nhập tay vượt bill → không hiển thị xem trước
       }
     }
 
@@ -388,6 +370,40 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+
+          // Nhiều người ứng tiền
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Có người khác cũng ứng tiền'),
+            subtitle: const Text('VD: bạn trả bữa ăn, bạn B trả tiền đi chơi'),
+            value: _multiPayer,
+            onChanged: (v) => setState(() => _multiPayer = v),
+          ),
+          if (_multiPayer) ...[
+            const Text('Ai đã ứng bao nhiêu?',
+                style: TextStyle(fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
+            for (final m in _members.where((m) => !m.isGuest))
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(m.name),
+                trailing: _CustomAmountField(
+                  value: m.paidAmount,
+                  onChanged: (v) => setState(() => m.paidAmount = v),
+                ),
+              ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Bạn ứng (phần còn lại)'),
+              trailing: Text(formatVnd((total -
+                      _members.fold<int>(
+                          0, (s, m) => s + (m.isGuest ? 0 : (m.paidAmount ?? 0))))
+                  .clamp(0, total))),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // Danh sách thành viên
@@ -492,6 +508,9 @@ class _MemberEntry {
   final String? userId;
   final bool isGuest;
   int? customAmount;
+
+  /// Số tiền thành viên này đã ứng trả (chỉ dùng khi bật nhiều người ứng tiền).
+  int? paidAmount;
 
   _MemberEntry({
     required this.name,
@@ -614,11 +633,22 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.grey.shade300),
               ),
-              child: QrImageView(
-                data: widget.currentUid,
-                version: QrVersions.auto,
-                size: 200,
-                backgroundColor: Colors.white,
+              // Dùng CustomPaint thay QrImageView: QrImageView dùng LayoutBuilder
+              // nên AlertDialog (cần intrinsic size) không vẽ được.
+              child: CustomPaint(
+                size: const Size(200, 200),
+                painter: QrPainter(
+                  data: widget.currentUid,
+                  version: QrVersions.auto,
+                  eyeStyle: const QrEyeStyle(
+                    eyeShape: QrEyeShape.square,
+                    color: Colors.black,
+                  ),
+                  dataModuleStyle: const QrDataModuleStyle(
+                    dataModuleShape: QrDataModuleShape.square,
+                    color: Colors.black,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 12),

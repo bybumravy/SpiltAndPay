@@ -29,6 +29,10 @@ dependencies:
   # --- OCR quét bill (on-device) ---
   google_mlkit_text_recognition: ^0.13.1
 
+  # --- Lưu ảnh vào thư viện / file tạm để chia sẻ ---
+  gal: ^2.3.1
+  path_provider: ^2.1.5
+
   # --- Tiện ích ---
   share_plus: ^10.0.3
   uuid: ^4.5.1

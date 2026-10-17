@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/dev_mode.dart';
 import '../../core/cloudinary_service.dart';
+import '../../core/vietqr.dart';
 import '../../repositories/user_repository.dart';
 
 /// Màn hình bắt buộc sau lần đăng nhập đầu tiên.
@@ -31,8 +32,22 @@ class _QrOnboardingScreenState extends ConsumerState<QrOnboardingScreen> {
       imageQuality: 85, // nén nhẹ để giảm dung lượng upload
     );
     if (picked == null) return;
+    final file = File(picked.path);
+
+    // Chỉ nhận ảnh có mã VietQR hợp lệ.
+    try {
+      await verifyBankQrImage(file);
+    } on VietQrException catch (e) {
+      if (mounted) {
+        setState(() {
+          _pickedImage = null;
+          _errorMessage = e.message;
+        });
+      }
+      return;
+    }
     setState(() {
-      _pickedImage = File(picked.path);
+      _pickedImage = file;
       _errorMessage = null;
     });
   }

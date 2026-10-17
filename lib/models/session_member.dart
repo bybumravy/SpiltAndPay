@@ -29,6 +29,9 @@ class SessionMember {
   /// Số tiền phải trả (VND).
   final int amountOwed;
 
+  /// Số tiền thành viên này đã ứng trả cho quán (VND). Mặc định 0.
+  final int amountPaid;
+
   final MemberStatus status;
   final DateTime? paidAt;
 
@@ -38,6 +41,7 @@ class SessionMember {
     required this.displayName,
     required this.isGuest,
     required this.amountOwed,
+    this.amountPaid = 0,
     required this.status,
     this.paidAt,
   });
@@ -49,6 +53,7 @@ class SessionMember {
       displayName: map['displayName'] as String? ?? '',
       isGuest: map['isGuest'] as bool? ?? false,
       amountOwed: (map['amountOwed'] as num).toInt(),
+      amountPaid: (map['amountPaid'] as num?)?.toInt() ?? 0,
       status: MemberStatus.values.firstWhere(
         (s) => s.name == map['status'],
         orElse: () => MemberStatus.pending,
@@ -65,6 +70,7 @@ class SessionMember {
       'displayName': displayName,
       'isGuest': isGuest,
       'amountOwed': amountOwed,
+      'amountPaid': amountPaid,
       'status': status.name,
       if (paidAt != null) 'paidAt': paidAt,
     };

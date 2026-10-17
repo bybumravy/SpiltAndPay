@@ -1,11 +1,17 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:share_plus/share_plus.dart' show Share;
+import 'package:share_plus/share_plus.dart';
 
+import '../../core/image_tools.dart';
 import '../../core/money.dart';
+import '../../core/vietqr.dart';
+import '../../core/vietqr_provider.dart';
 import '../../models/session.dart';
 import '../../models/session_member.dart';
 import '../../repositories/session_repository.dart';
+import '../../repositories/user_repository.dart';
 
 class SessionDetailScreen extends ConsumerWidget {
   final Session session;
@@ -42,7 +48,9 @@ class SessionDetailScreen extends ConsumerWidget {
               ),
               orElse: () => const SizedBox.shrink(),
             ),
-          if (currentSession.creatorId == currentUid)
+          // Phiên đã đóng đã ghi nợ vào sổ → chỉ phiên đang mở mới sửa/xoá được.
+          if (currentSession.creatorId == currentUid &&
+              currentSession.status == SessionStatus.open)
             PopupMenuButton<String>(
               onSelected: (val) {
                 if (val == 'edit') _editTitle(context, ref, currentSession);
@@ -114,7 +122,9 @@ class SessionDetailScreen extends ConsumerWidget {
                     member: members[i],
                     creatorId: currentSession.creatorId,
                     sessionId: currentSession.sessionId,
+                    sessionTitle: currentSession.title,
                     isCreatorView: currentSession.creatorId == currentUid,
+                    currentUid: currentUid,
                   ),
                 );
               },
@@ -281,13 +291,17 @@ class _MemberTile extends ConsumerStatefulWidget {
   final SessionMember member;
   final String creatorId;
   final String sessionId;
+  final String sessionTitle;
   final bool isCreatorView; // creator có thể đánh dấu "Đã thu" cho guest
+  final String currentUid;
 
   const _MemberTile({
     required this.member,
     required this.creatorId,
     required this.sessionId,
+    required this.sessionTitle,
     required this.isCreatorView,
+    required this.currentUid,
   });
 
   @override
@@ -315,21 +329,67 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
     }
   }
 
+  /// Chia sẻ cho khách: ảnh QR của chủ nợ ghép với câu nhắc, gửi qua Zalo/Messenger.
   Future<void> _shareGuest() async {
-    final text =
-        '${widget.member.displayName} ơi, bạn nợ ${formatVnd(widget.member.amountOwed)} '
-        'trong phiên chi tiêu nhóm. Vui lòng chuyển khoản sớm nhé!';
-    await Share.share(text);
+    final m = widget.member;
+    final message = 'Hi ${m.displayName}, tiền "${widget.sessionTitle}" của bạn là '
+        '${formatVnd(m.amountOwed)} nhé. Quét mã này gửi mình nha!';
+
+    final qrUrl =
+        ref.read(currentUserProvider(widget.creatorId)).valueOrNull?.qrImageUrl;
+    if (qrUrl == null) {
+      // Chưa có QR → vẫn gửi được câu nhắc dạng chữ.
+      await Share.share(message);
+      return;
+    }
+
+    setState(() => _isUpdating = true);
+    try {
+      // Ưu tiên mã VietQR có sẵn số tiền + nội dung; không đọc được thì dùng ảnh QR gốc.
+      Uint8List qr;
+      final staticPayload = await ref.read(staticQrPayloadProvider(qrUrl).future);
+      final creatorName =
+          ref.read(currentUserProvider(widget.creatorId)).valueOrNull?.name ?? '';
+      if (staticPayload != null && m.amountOwed > 0) {
+        final dyn = buildDynamicVietQr(
+          staticPayload,
+          amount: m.amountOwed,
+          note: transferNote(debtorName: m.displayName, creditorName: creatorName),
+        );
+        qr = await renderQrPng(dyn, size: 700, margin: 40);
+      } else {
+        qr = await downloadImageBytes(qrUrl);
+      }
+      final card = await buildPaymentCard(qrPng: qr, message: message);
+      final path = await writeTempImage(card, 'thanh_toan_${m.memberId}.png');
+      await Share.shareXFiles([XFile(path, mimeType: 'image/png')], text: message);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không tạo được ảnh. Kiểm tra mạng và thử lại.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUpdating = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final m = widget.member;
     final isCreator = m.memberId == widget.creatorId;
+    final isMe = m.userId != null && m.userId == widget.currentUid;
+
+    // Phiên cũ lưu tên rỗng cho người tạo → lấy tên từ hồ sơ người dùng.
+    var name = m.displayName;
+    if (name.isEmpty && m.userId != null) {
+      name = ref.watch(currentUserProvider(m.userId!)).valueOrNull?.name ?? '';
+    }
 
     String subtitle;
     if (isCreator) {
-      subtitle = 'Người tạo (đã trả)';
+      subtitle = 'Người tạo';
+      if (m.amountPaid > 0) subtitle += ' · đã ứng ${formatVnd(m.amountPaid)}';
     } else if (m.isGuest) {
       subtitle = m.status == MemberStatus.paid ? 'Khách — đã trả' : 'Khách — chưa trả';
     } else {
@@ -341,6 +401,7 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
         default:
           subtitle = 'Chờ xử lý';
       }
+      if (m.amountPaid > 0) subtitle += ' · đã ứng ${formatVnd(m.amountPaid)}';
     }
 
     // Trailing: số tiền + nút hành động cho guest
@@ -383,10 +444,9 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
 
     return ListTile(
       leading: CircleAvatar(
-        child: Text(
-            m.displayName.isNotEmpty ? m.displayName[0].toUpperCase() : '?'),
+        child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?'),
       ),
-      title: Text(isCreator ? '${m.displayName} (bạn)' : m.displayName),
+      title: Text(isMe ? '${name.isEmpty ? 'Bạn' : name} (bạn)' : name),
       subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
       trailing: trailing,
     );

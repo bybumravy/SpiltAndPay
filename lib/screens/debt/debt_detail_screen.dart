@@ -1,8 +1,12 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/image_tools.dart';
 import '../../core/money.dart';
+import '../../core/vietqr.dart';
+import '../../core/vietqr_provider.dart';
 import '../../models/debt.dart';
 import '../../models/payment.dart';
 import '../../repositories/debt_repository.dart';
@@ -24,12 +28,29 @@ class DebtDetailScreen extends ConsumerWidget {
     final debtId = Debt.docId(debt.userA, debt.userB);
     final paymentsAsync = ref.watch(paymentsProvider(debtId));
 
+    // Lấy khoản nợ MỚI NHẤT từ server (không dùng bản `debt` lúc mở màn hình,
+    // vì sau khi trả xong nó đã cũ). Không còn trong danh sách = nợ đã về 0.
+    final debtsAsync = ref.watch(userDebtsProvider(currentUid));
+    final live = debtsAsync.valueOrNull
+        ?.where((d) => Debt.docId(d.userA, d.userB) == debtId)
+        .firstOrNull;
+    final current = live ??
+        (debtsAsync.hasValue
+            ? Debt(
+                userA: debt.userA,
+                userB: debt.userB,
+                balance: 0,
+                updatedAt: DateTime.now())
+            : debt);
+
     // Từ góc nhìn currentUser: dương = đang nợ, âm = người kia nợ mình.
-    final netAmount = debt.amountOwedBy(currentUid);
+    final netAmount = current.amountOwedBy(currentUid);
     final iAmDebtor = netAmount > 0;
+    final isSettled = netAmount == 0;
     final otherUid = currentUid == debt.userA ? debt.userB : debt.userA;
 
     final otherUserAsync = ref.watch(currentUserProvider(otherUid));
+    final myName = ref.watch(currentUserProvider(currentUid)).valueOrNull?.name ?? '';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Chi tiết nợ')),
@@ -44,9 +65,11 @@ class DebtDetailScreen extends ConsumerWidget {
               child: Column(
                 children: [
                   Text(
-                    iAmDebtor
-                        ? 'Bạn đang nợ ${otherUser?.name ?? otherUid}'
-                        : '${otherUser?.name ?? otherUid} đang nợ bạn',
+                    isSettled
+                        ? 'Đã thanh toán đủ với ${otherUser?.name ?? otherUid}'
+                        : iAmDebtor
+                            ? 'Bạn đang nợ ${otherUser?.name ?? otherUid}'
+                            : '${otherUser?.name ?? otherUid} đang nợ bạn',
                     style: Theme.of(context).textTheme.titleMedium,
                     textAlign: TextAlign.center,
                   ),
@@ -66,14 +89,19 @@ class DebtDetailScreen extends ConsumerWidget {
             // Nút hành động
             Padding(
               padding: const EdgeInsets.all(16),
-              child: iAmDebtor
+              child: isSettled
+                  ? const Text('Không còn khoản nợ nào.',
+                      style: TextStyle(color: Colors.green))
+                  : iAmDebtor
                   ? _DebtorActions(
-                      debt: debt,
+                      debt: current,
                       debtId: debtId,
                       currentUid: currentUid,
                       otherUid: otherUid,
                       netAmount: netAmount,
                       otherQrUrl: otherUser?.qrImageUrl,
+                      myName: myName,
+                      otherName: otherUser?.name ?? '',
                     )
                   : _CreditorSection(otherUserName: otherUser?.name ?? otherUid),
             ),
@@ -127,6 +155,8 @@ class _DebtorActions extends ConsumerStatefulWidget {
   final String otherUid;
   final int netAmount;
   final String? otherQrUrl;
+  final String myName;
+  final String otherName;
 
   const _DebtorActions({
     required this.debt,
@@ -135,6 +165,8 @@ class _DebtorActions extends ConsumerStatefulWidget {
     required this.otherUid,
     required this.netAmount,
     required this.otherQrUrl,
+    required this.myName,
+    required this.otherName,
   });
 
   @override
@@ -143,6 +175,55 @@ class _DebtorActions extends ConsumerStatefulWidget {
 
 class _DebtorActionsState extends ConsumerState<_DebtorActions> {
   bool _isSending = false;
+  bool _isSaving = false;
+
+  /// Lưu ảnh QR của chủ nợ vào thư viện để mở app ngân hàng quét.
+  Future<void> _saveQr() async {
+    final url = widget.otherQrUrl;
+    if (url == null) return;
+    setState(() => _isSaving = true);
+    try {
+      final dynamicQr = _dynamicPayload();
+      final bytes = dynamicQr != null
+          ? await renderQrPng(dynamicQr) // QR đã điền sẵn số tiền + nội dung
+          : await downloadImageBytes(url);
+      await saveImageToGallery(bytes, name: 'qr_${widget.otherUid}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Đã lưu ảnh QR vào album "SplitPay" trong thư viện ảnh.'),
+            duration: const Duration(seconds: 6),
+            action: SnackBarAction(label: 'Mở thư viện', onPressed: openGallery),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không lưu được ảnh. Kiểm tra mạng và quyền ảnh.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  /// Mã VietQR động (có sẵn số tiền + nội dung); null nếu chưa đọc được QR của chủ nợ.
+  String? _dynamicPayload() {
+    final url = widget.otherQrUrl;
+    if (url == null) return null;
+    final staticPayload = ref.read(staticQrPayloadProvider(url)).valueOrNull;
+    if (staticPayload == null) return null;
+    try {
+      return buildDynamicVietQr(
+        staticPayload,
+        amount: widget.netAmount,
+        note: transferNote(debtorName: widget.myName, creditorName: widget.otherName),
+      );
+    } on VietQrException {
+      return null;
+    }
+  }
 
   Future<void> _markTransferred() async {
     setState(() => _isSending = true);
@@ -151,7 +232,6 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
             debtId: widget.debtId,
             fromUid: widget.currentUid,
             toUid: widget.otherUid,
-            amount: widget.netAmount,
             paymentId: newUuid(),
           );
       if (mounted) {
@@ -163,7 +243,8 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Có lỗi. Thử lại.')),
+          SnackBar(
+              content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.')),
         );
       }
     } finally {
@@ -178,12 +259,69 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
       data: (ps) => ps.any((p) => p.status == PaymentStatus.pending),
       orElse: () => false,
     );
+    // Đọc QR của chủ nợ để dựng mã có sẵn số tiền (watch để màn hình cập nhật khi đọc xong).
+    if (widget.otherQrUrl != null) ref.watch(staticQrPayloadProvider(widget.otherQrUrl!));
+    final dynamicQr = _dynamicPayload();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Hướng dẫn: QR tĩnh không có số tiền / nội dung nên người nợ tự nhập.
+        Card(
+          color: Theme.of(context).colorScheme.primaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Bạn cần chuyển số tiền:'),
+                Text(
+                  formatVnd(widget.netAmount),
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text('Nội dung chuyển khoản nên ghi:'),
+                SelectableText(
+                  transferNote(
+                    debtorName: widget.myName,
+                    creditorName: widget.otherName,
+                  ),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         if (widget.otherQrUrl != null) ...[
           const Text('QR chuyển tiền:', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
+          if (dynamicQr != null) ...[
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: QrImageView(
+                  data: dynamicQr,
+                  version: QrVersions.auto,
+                  size: 220,
+                  backgroundColor: Colors.white,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Mã này đã điền sẵn số tiền và nội dung. Lưu ảnh, mở app ngân hàng và quét là xong.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ] else
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: CachedNetworkImage(
@@ -195,6 +333,17 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
               errorWidget: (ctx, url, err) =>
                   const Icon(Icons.broken_image, size: 64),
             ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _isSaving ? null : _saveQr,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.download),
+            label: const Text('Lưu ảnh QR vào máy'),
           ),
           const SizedBox(height: 12),
         ] else
@@ -288,7 +437,6 @@ class _PaymentTile extends ConsumerWidget {
       await ref.read(debtRepositoryProvider).confirmPayment(
             debtId: debtId,
             paymentId: payment.paymentId,
-            amount: payment.amount,
             debtorIsUserA: debtorIsUserA,
           );
     } catch (e) {
