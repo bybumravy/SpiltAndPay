@@ -12,9 +12,13 @@ import '../../repositories/user_repository.dart';
 /// Màn hình bắt buộc sau lần đăng nhập đầu tiên.
 /// Yêu cầu user tải lên ảnh QR nhận tiền từ ngân hàng.
 /// Sau khi upload thành công → AuthGate tự chuyển sang HomeScreen.
+///
+/// Khi [isChange] = true (mở từ Hồ sơ để đổi QR): có nút quay lại, và sau khi
+/// lưu thì tự đóng màn hình.
 class QrOnboardingScreen extends ConsumerStatefulWidget {
   final String uid;
-  const QrOnboardingScreen({super.key, required this.uid});
+  final bool isChange;
+  const QrOnboardingScreen({super.key, required this.uid, this.isChange = false});
 
   @override
   ConsumerState<QrOnboardingScreen> createState() => _QrOnboardingScreenState();
@@ -73,7 +77,11 @@ class _QrOnboardingScreenState extends ConsumerState<QrOnboardingScreen> {
       // Lưu URL vào Firestore profile.
       await ref.read(userRepositoryProvider).updateQrImageUrl(widget.uid, url);
 
-      // AuthGate đang watch currentUserProvider — tự rebuild khi qrImageUrl không null.
+      // Lần đầu: AuthGate đang watch currentUserProvider — tự rebuild khi qrImageUrl không null.
+      // Đổi QR: đóng màn hình và báo thành công.
+      if (widget.isChange && mounted) {
+        Navigator.pop(context, true);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _errorMessage = 'Upload thất bại. Kiểm tra kết nối và thử lại.');
@@ -87,8 +95,9 @@ class _QrOnboardingScreenState extends ConsumerState<QrOnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Thiết lập QR nhận tiền'),
-        automaticallyImplyLeading: false, // không cho back, bắt buộc hoàn thành
+        title: Text(widget.isChange ? 'Đổi QR nhận tiền' : 'Thiết lập QR nhận tiền'),
+        // Lần đầu: không cho back, bắt buộc hoàn thành. Đổi QR: cho quay lại.
+        automaticallyImplyLeading: widget.isChange,
       ),
       body: SafeArea(
         child: Padding(
@@ -179,7 +188,11 @@ class _QrOnboardingScreenState extends ConsumerState<QrOnboardingScreen> {
                         height: 20, width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
-                    : Text(kDevMode ? 'Tiếp tục (Dev mode)' : 'Xác nhận và tiếp tục'),
+                    : Text(kDevMode
+                        ? 'Tiếp tục (Dev mode)'
+                        : widget.isChange
+                            ? 'Lưu QR mới'
+                            : 'Xác nhận và tiếp tục'),
               ),
             ],
           ),

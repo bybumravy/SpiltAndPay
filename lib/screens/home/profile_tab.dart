@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/firebase_providers.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/user_repository.dart';
+import '../auth/qr_onboarding_screen.dart';
 import '../friends/add_friend_screen.dart';
 
 class ProfileTab extends ConsumerWidget {
@@ -106,6 +107,25 @@ class ProfileTab extends ConsumerWidget {
                         const Icon(Icons.broken_image, size: 64),
                   ),
                 ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.swap_horiz),
+                label: const Text('Đổi ảnh QR'),
+                onPressed: () async {
+                  final changed = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          QrOnboardingScreen(uid: user.uid, isChange: true),
+                    ),
+                  );
+                  if (changed == true && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Đã cập nhật QR nhận tiền.')),
+                    );
+                  }
+                },
+              ),
 
               const SizedBox(height: 24),
               const Divider(),
