@@ -1,0 +1,324 @@
+{
+  "analysis_options.yaml": {
+    "mtime": 1791910236.4286797,
+    "seen": 1793586287.5944161,
+    "ast_hash": "6b329a7ef42d44daaecce92f583f8e4e",
+    "semantic_hash": "6b329a7ef42d44daaecce92f583f8e4e"
+  },
+  "android/app/build.gradle.kts": {
+    "mtime": 1791957136.637935,
+    "seen": 1793586287.594626,
+    "ast_hash": "86365762e833b315bdee469fb544ca70",
+    "semantic_hash": "86365762e833b315bdee469fb544ca70"
+  },
+  "android/app/google-services.json": {
+    "mtime": 1791954029.2435195,
+    "seen": 1793586287.5947556,
+    "ast_hash": "b3529b34dcb540eac1de615b34297129",
+    "semantic_hash": "b3529b34dcb540eac1de615b34297129",
+    "ast_empty": true
+  },
+  "android/app/src/main/kotlin/com/prm/splitpay/MainActivity.kt": {
+    "mtime": 1791910236.4735248,
+    "seen": 1793586287.5947595,
+    "ast_hash": "d3923c352b54a62a01a075b208cbc011",
+    "semantic_hash": "d3923c352b54a62a01a075b208cbc011"
+  },
+  "android/build.gradle.kts": {
+    "mtime": 1791951440.5254047,
+    "seen": 1793586287.5948946,
+    "ast_hash": "803fe22651fbe96ed401eb0b66a492d1",
+    "semantic_hash": "803fe22651fbe96ed401eb0b66a492d1"
+  },
+  "android/settings.gradle.kts": {
+    "mtime": 1791951440.5254047,
+    "seen": 1793586287.5950513,
+    "ast_hash": "a49362481237ec7824df2b504eb42571",
+    "semantic_hash": "a49362481237ec7824df2b504eb42571"
+  },
+  "firebase.json": {
+    "mtime": 1791995723.3057926,
+    "seen": 1793586287.5953302,
+    "ast_hash": "9f160178f57081d25ab6d74b3c292071",
+    "semantic_hash": "9f160178f57081d25ab6d74b3c292071",
+    "ast_empty": true
+  },
+  "firebase.test.json": {
+    "mtime": 1793169830.6913936,
+    "seen": 1793586287.595337,
+    "ast_hash": "e3b571477976f7d1bfcf284751c01fce",
+    "semantic_hash": "e3b571477976f7d1bfcf284751c01fce",
+    "ast_empty": true
+  },
+  "firestore.indexes.json": {
+    "mtime": 1791995704.1425405,
+    "seen": 1793586287.5953426,
+    "ast_hash": "deaa27a8699b0e59716bb387e1bf57a9",
+    "semantic_hash": "deaa27a8699b0e59716bb387e1bf57a9",
+    "ast_empty": true
+  },
+  "lib/app.dart": {
+    "mtime": 1791963956.339844,
+    "seen": 1793586287.5953481,
+    "ast_hash": "3cc93130d562c19208ca546d43df1c95",
+    "semantic_hash": "3cc93130d562c19208ca546d43df1c95"
+  },
+  "lib/core/bill_ocr.dart": {
+    "mtime": 1793169830.7007782,
+    "seen": 1793586287.5955837,
+    "ast_hash": "2a4319c413a048131ed8a227d9cf4ffd",
+    "semantic_hash": "2a4319c413a048131ed8a227d9cf4ffd"
+  },
+  "lib/core/cloudinary_service.dart": {
+    "mtime": 1791954292.2929273,
+    "seen": 1793586287.5957012,
+    "ast_hash": "726441c60a49d6a67d8b74398c4792c3",
+    "semantic_hash": "726441c60a49d6a67d8b74398c4792c3"
+  },
+  "lib/core/debt_simplify.dart": {
+    "mtime": 1793169830.7015111,
+    "seen": 1793586287.5958078,
+    "ast_hash": "092c843e63e53c65475695f9495e1763",
+    "semantic_hash": "092c843e63e53c65475695f9495e1763"
+  },
+  "lib/core/dev_mode.dart": {
+    "mtime": 1792051543.134251,
+    "seen": 1793586287.5959325,
+    "ast_hash": "fbd68d66ff56df0879af85cdb0539d6f",
+    "semantic_hash": "fbd68d66ff56df0879af85cdb0539d6f"
+  },
+  "lib/core/firebase_providers.dart": {
+    "mtime": 1791951602.339766,
+    "seen": 1793586287.5961862,
+    "ast_hash": "d03fbea6003d867bc662e03cfc1d38b6",
+    "semantic_hash": "d03fbea6003d867bc662e03cfc1d38b6"
+  },
+  "lib/core/image_tools.dart": {
+    "mtime": 1793169830.7027178,
+    "seen": 1793586287.5964172,
+    "ast_hash": "c11b147c08141e8d71205fad75b53e3b",
+    "semantic_hash": "c11b147c08141e8d71205fad75b53e3b"
+  },
+  "lib/core/money.dart": {
+    "mtime": 1793169830.7299483,
+    "seen": 1793586287.5965674,
+    "ast_hash": "a7caf25fbe991ff7be9a46b25d4768bb",
+    "semantic_hash": "a7caf25fbe991ff7be9a46b25d4768bb"
+  },
+  "lib/core/settlement.dart": {
+    "mtime": 1793169830.734337,
+    "seen": 1793586287.5966709,
+    "ast_hash": "a2fe3a30ec50565e605ee583482c44b7",
+    "semantic_hash": "a2fe3a30ec50565e605ee583482c44b7"
+  },
+  "lib/core/vietqr.dart": {
+    "mtime": 1793169830.735754,
+    "seen": 1793586287.5967727,
+    "ast_hash": "f639ef6267ca4f281ce4212e1c9683c7",
+    "semantic_hash": "f639ef6267ca4f281ce4212e1c9683c7"
+  },
+  "lib/core/vietqr_provider.dart": {
+    "mtime": 1793169830.7658198,
+    "seen": 1793586287.5969357,
+    "ast_hash": "9e3a86ae3a4f0b88ad4ce576f32c6b30",
+    "semantic_hash": "9e3a86ae3a4f0b88ad4ce576f32c6b30"
+  },
+  "lib/firebase_options.dart": {
+    "mtime": 1791951440.5356057,
+    "seen": 1793586287.597173,
+    "ast_hash": "6b355c4736438adef60021ffb96a14a6",
+    "semantic_hash": "6b355c4736438adef60021ffb96a14a6"
+  },
+  "lib/main.dart": {
+    "mtime": 1791951677.9622965,
+    "seen": 1793586287.5973866,
+    "ast_hash": "8f5be18a677cb3b8470cccc5416cf7bc",
+    "semantic_hash": "8f5be18a677cb3b8470cccc5416cf7bc"
+  },
+  "lib/models/app_user.dart": {
+    "mtime": 1791951629.2036955,
+    "seen": 1793586287.5975523,
+    "ast_hash": "3b71b38dd0430fcc0c4b98276039e8f7",
+    "semantic_hash": "3b71b38dd0430fcc0c4b98276039e8f7"
+  },
+  "lib/models/debt.dart": {
+    "mtime": 1793169830.7669723,
+    "seen": 1793586287.5976562,
+    "ast_hash": "a7ee9bce8c5fa48b5f8533b303870169",
+    "semantic_hash": "a7ee9bce8c5fa48b5f8533b303870169"
+  },
+  "lib/models/payment.dart": {
+    "mtime": 1791951663.9269443,
+    "seen": 1793586287.5977588,
+    "ast_hash": "dce1cbe5f7b058b6248b2acd188c88d9",
+    "semantic_hash": "dce1cbe5f7b058b6248b2acd188c88d9"
+  },
+  "lib/models/session.dart": {
+    "mtime": 1791995697.5033984,
+    "seen": 1793586287.597862,
+    "ast_hash": "8f1f6b13722f156d3480ad4140e56f90",
+    "semantic_hash": "8f1f6b13722f156d3480ad4140e56f90"
+  },
+  "lib/models/session_member.dart": {
+    "mtime": 1793169830.8498707,
+    "seen": 1793586287.5979643,
+    "ast_hash": "5a5c8a2803a894800d731df8be905013",
+    "semantic_hash": "5a5c8a2803a894800d731df8be905013"
+  },
+  "lib/repositories/auth_repository.dart": {
+    "mtime": 1791954391.684381,
+    "seen": 1793586287.598151,
+    "ast_hash": "1e202b39ef5a655f794019c77c39e68a",
+    "semantic_hash": "1e202b39ef5a655f794019c77c39e68a"
+  },
+  "lib/repositories/debt_repository.dart": {
+    "mtime": 1793169830.8839388,
+    "seen": 1793586287.5983922,
+    "ast_hash": "715d0bedb507a664cada80de6d566f82",
+    "semantic_hash": "715d0bedb507a664cada80de6d566f82"
+  },
+  "lib/repositories/session_repository.dart": {
+    "mtime": 1793169830.8993516,
+    "seen": 1793586287.598512,
+    "ast_hash": "0edb716e5eec4b9be4099d00abbb1711",
+    "semantic_hash": "0edb716e5eec4b9be4099d00abbb1711"
+  },
+  "lib/repositories/user_repository.dart": {
+    "mtime": 1791996998.194828,
+    "seen": 1793586287.598619,
+    "ast_hash": "78885046565faf2d6d183042ff053639",
+    "semantic_hash": "78885046565faf2d6d183042ff053639"
+  },
+  "lib/screens/auth/login_screen.dart": {
+    "mtime": 1791954414.816226,
+    "seen": 1793586287.5987206,
+    "ast_hash": "7d57e821234c0c1d7d26d22ab554eeb5",
+    "semantic_hash": "7d57e821234c0c1d7d26d22ab554eeb5"
+  },
+  "lib/screens/auth/qr_onboarding_screen.dart": {
+    "mtime": 1793169830.9039445,
+    "seen": 1793586287.598917,
+    "ast_hash": "cdc1f1b023dd945bb370056da22db900",
+    "semantic_hash": "cdc1f1b023dd945bb370056da22db900"
+  },
+  "lib/screens/debt/debt_detail_screen.dart": {
+    "mtime": 1793169830.9608476,
+    "seen": 1793586287.5991795,
+    "ast_hash": "48ed17ff5ca44cc739da5027efcdee48",
+    "semantic_hash": "48ed17ff5ca44cc739da5027efcdee48"
+  },
+  "lib/screens/friends/add_friend_screen.dart": {
+    "mtime": 1792058555.7570648,
+    "seen": 1793586287.599426,
+    "ast_hash": "1a0f34bd0caa2e61d66769160c855c8d",
+    "semantic_hash": "1a0f34bd0caa2e61d66769160c855c8d"
+  },
+  "lib/screens/home/debts_tab.dart": {
+    "mtime": 1791967914.4396122,
+    "seen": 1793586287.5996165,
+    "ast_hash": "0afb768ad85ef187d69ce9f4bd47a69f",
+    "semantic_hash": "0afb768ad85ef187d69ce9f4bd47a69f"
+  },
+  "lib/screens/home/home_screen.dart": {
+    "mtime": 1791963851.14356,
+    "seen": 1793586287.5997272,
+    "ast_hash": "6e5b7a8f3f6215384e8f5272af7cbb5b",
+    "semantic_hash": "6e5b7a8f3f6215384e8f5272af7cbb5b"
+  },
+  "lib/screens/home/profile_tab.dart": {
+    "mtime": 1793169830.9757109,
+    "seen": 1793586287.5998318,
+    "ast_hash": "a827706ed966841eac4690fa5b7780ba",
+    "semantic_hash": "a827706ed966841eac4690fa5b7780ba"
+  },
+  "lib/screens/home/sessions_tab.dart": {
+    "mtime": 1793169830.9775362,
+    "seen": 1793586287.599979,
+    "ast_hash": "d254131b470a91fc1b381188adc1723a",
+    "semantic_hash": "d254131b470a91fc1b381188adc1723a"
+  },
+  "lib/screens/session/create_session_screen.dart": {
+    "mtime": 1793169830.990384,
+    "seen": 1793586287.6006413,
+    "ast_hash": "68d444fad931907c7d6bea1d1f72e3f2",
+    "semantic_hash": "68d444fad931907c7d6bea1d1f72e3f2"
+  },
+  "lib/screens/session/session_detail_screen.dart": {
+    "mtime": 1793169830.9923425,
+    "seen": 1793586287.6007602,
+    "ast_hash": "5169fce6be8923774daaf0fe13886e5d",
+    "semantic_hash": "5169fce6be8923774daaf0fe13886e5d"
+  },
+  "pubspec.yaml": {
+    "mtime": 1793169831.1606357,
+    "seen": 1793586287.6009588,
+    "ast_hash": "d49ff194c87eecc5a59f38fcde78be95",
+    "semantic_hash": "d49ff194c87eecc5a59f38fcde78be95"
+  },
+  "rules_test/package.json": {
+    "mtime": 1793169831.388306,
+    "seen": 1793586287.6012979,
+    "ast_hash": "e15c0d003a8352d62272e49efe36bcc4",
+    "semantic_hash": "e15c0d003a8352d62272e49efe36bcc4"
+  },
+  "rules_test/rules.test.js": {
+    "mtime": 1793169831.3904617,
+    "seen": 1793586287.6014912,
+    "ast_hash": "16300a18183cd32d8a18ee2d4a8667d0",
+    "semantic_hash": "16300a18183cd32d8a18ee2d4a8667d0"
+  },
+  "test/core/bill_ocr_test.dart": {
+    "mtime": 1793169831.3916416,
+    "seen": 1793586287.6016483,
+    "ast_hash": "41f2b3f162a7f8181998464a2f4b3007",
+    "semantic_hash": "41f2b3f162a7f8181998464a2f4b3007"
+  },
+  "test/core/debt_simplify_test.dart": {
+    "mtime": 1793169831.3921413,
+    "seen": 1793586287.601818,
+    "ast_hash": "6de90f6f4cbae9d7cce2d5becb7a77e6",
+    "semantic_hash": "6de90f6f4cbae9d7cce2d5becb7a77e6"
+  },
+  "test/core/image_tools_test.dart": {
+    "mtime": 1793169831.3928611,
+    "seen": 1793586287.601991,
+    "ast_hash": "1ed9fe4cc616d2694ba970d9fb7cace1",
+    "semantic_hash": "1ed9fe4cc616d2694ba970d9fb7cace1"
+  },
+  "test/core/money_debt_test.dart": {
+    "mtime": 1793169831.3939364,
+    "seen": 1793586287.602169,
+    "ast_hash": "ccc6331e7bd695428899a81ce826130a",
+    "semantic_hash": "ccc6331e7bd695428899a81ce826130a"
+  },
+  "test/core/money_flow_test.dart": {
+    "mtime": 1793169831.4012504,
+    "seen": 1793586287.6023254,
+    "ast_hash": "48431397ddabb869ef9e7aa51378e551",
+    "semantic_hash": "48431397ddabb869ef9e7aa51378e551"
+  },
+  "test/core/settlement_test.dart": {
+    "mtime": 1793169831.4042015,
+    "seen": 1793586287.6024773,
+    "ast_hash": "5b1b8324b488b961d91c3e14faf0d54f",
+    "semantic_hash": "5b1b8324b488b961d91c3e14faf0d54f"
+  },
+  "test/core/vietqr_dynamic_test.dart": {
+    "mtime": 1793169831.4115958,
+    "seen": 1793586287.6026394,
+    "ast_hash": "17e5b47e4511c14345a5a16de118aff4",
+    "semantic_hash": "17e5b47e4511c14345a5a16de118aff4"
+  },
+  "test/models/session_test.dart": {
+    "mtime": 1791995817.5740602,
+    "seen": 1793586287.602756,
+    "ast_hash": "a0f29ef6f787c860d162bd2e7d44fd89",
+    "semantic_hash": "a0f29ef6f787c860d162bd2e7d44fd89"
+  },
+  "test/widget_test.dart": {
+    "mtime": 1791953170.081645,
+    "seen": 1793586287.602863,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  }
+}
