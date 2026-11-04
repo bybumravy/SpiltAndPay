@@ -8,6 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/bill_ocr.dart';
+import '../../ui/app_theme.dart';
 import '../../core/expense_allocation.dart';
 import '../../core/money.dart';
 import '../../models/app_user.dart';
@@ -167,8 +168,8 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         SnackBar(
           content: Text(
             scan.confident
-                ? 'Đã đọc tổng tiền: ${formatVnd(scan.total!)}. Kiểm tra lại nhé.'
-                : 'Không thấy dòng "Tổng cộng", tạm lấy số lớn nhất: ${formatVnd(scan.total!)}. Hãy kiểm tra lại.',
+                ? 'Đã đọc ${formatVnd(scan.total!)}'
+                : 'Không tìm thấy tổng tiền. Tạm dùng ${formatVnd(scan.total!)}.',
           ),
         ),
       );
@@ -545,7 +546,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   @override
   Widget build(BuildContext context) {
     final total = _preview.totalAmount;
-    final theme = FTheme.neutral.light.touch;
+    final theme = AppTheme.forui;
     return FTheme(
       data: theme,
       child: Scaffold(
@@ -554,140 +555,133 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
             widget.initialSession == null ? 'Tạo phiên mới' : 'Chỉnh sửa phiên',
           ),
         ),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 10, 24, 16),
+            child: FilledButton(
+              onPressed: _isSaving ? null : _submit,
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Text(
+                      widget.initialSession == null
+                          ? 'Tạo phiên'
+                          : 'Lưu thay đổi',
+                    ),
+            ),
+          ),
+        ),
         body: AbsorbPointer(
           absorbing: _isSaving,
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
             children: [
               if (widget.initialSession != null &&
                   widget.initialExpenses.isEmpty)
                 const Padding(
-                  padding: EdgeInsets.only(bottom: 16),
+                  padding: EdgeInsets.only(bottom: 20),
                   child: Text(
-                    'Phiên cũ sẽ chuyển sang chia đều theo từng khoản chi khi lưu. Kiểm tra lại người trả, số tiền đã ứng và phần chia bên dưới.',
+                    'Phiên cũ sẽ chuyển sang chia đều theo khoản chi khi lưu.',
+                    style: TextStyle(color: AppTheme.muted),
                   ),
                 ),
-              FCard(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: [
-                      FTextField(
-                        control: FTextFieldControl.managed(
-                          controller: _titleController,
-                        ),
-                        label: const Text('Tên phiên'),
-                        hint: 'Ví dụ: Đi Đà Lạt',
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Khoản chi',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      for (var i = 0; i < _expenses.length; i++) ...[
-                        _ExpenseEditorCard(
-                          key: ValueKey(_expenses[i].key),
-                          index: i,
-                          expense: _expenses[i],
-                          memberIds: _memberIds,
-                          members: _members,
-                          creatorName: 'Bạn',
-                          isActive: _activeExpenseIndex == i,
-                          onActive: () =>
-                              setState(() => _activeExpenseIndex = i),
-                          onAmountChanged: (_) =>
-                              setState(() => _activeExpenseIndex = i),
-                          onRemove: _expenses.length > 1
-                              ? () => _removeExpense(i)
-                              : null,
-                          onChoosePayer: () => _choosePayer(i),
-                          onChooseParticipants: () => _editParticipants(i),
-                          onOcr: () => _pickAndOcr(i),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: FButton(
-                          variant: .outline,
-                          mainAxisSize: .min,
-                          onPress: _addExpense,
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.add),
-                              SizedBox(width: 6),
-                              Text('Thêm khoản chi'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+              FTextField(
+                control: FTextFieldControl.managed(
+                  controller: _titleController,
+                ),
+                label: const Text('Tên phiên'),
+                hint: 'Đà Lạt',
+              ),
+              const SizedBox(height: 24),
+              SectionHeading(
+                'Khoản chi',
+                action: TextButton.icon(
+                  onPressed: _addExpense,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Thêm khoản chi'),
+                ),
+              ),
+              for (var i = 0; i < _expenses.length; i++) ...[
+                _ExpenseEditorCard(
+                  key: ValueKey(_expenses[i].key),
+                  index: i,
+                  expense: _expenses[i],
+                  memberIds: _memberIds,
+                  members: _members,
+                  creatorName: 'Bạn',
+                  isActive: _activeExpenseIndex == i,
+                  onActive: () => setState(() => _activeExpenseIndex = i),
+                  onAmountChanged: (_) =>
+                      setState(() => _activeExpenseIndex = i),
+                  onRemove: _expenses.length > 1
+                      ? () => _removeExpense(i)
+                      : null,
+                  onChoosePayer: () => _choosePayer(i),
+                  onChooseParticipants: () => _editParticipants(i),
+                  onOcr: () => _pickAndOcr(i),
+                ),
+                const SizedBox(height: 16),
+              ],
+              const SizedBox(height: 8),
+              const Divider(),
+              const SizedBox(height: 24),
+              Text(
+                'Tổng phiên',
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(color: AppTheme.muted),
+              ),
+              const SizedBox(height: 6),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  formatVnd(total),
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
               ),
               const SizedBox(height: 16),
-              FCard(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              for (final memberId in _memberIds)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  child: Row(
                     children: [
-                      Text(
-                        'Tổng phiên',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        formatVnd(total),
-                        style: Theme.of(context).textTheme.headlineSmall,
-                      ),
-                      const Divider(),
-                      for (final memberId in _memberIds)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  memberId == widget.creatorUid
-                                      ? 'Bạn'
-                                      : _members
-                                            .firstWhere(
-                                              (m) => m.memberId == memberId,
-                                            )
-                                            .name,
-                                ),
-                              ),
-                              Text(
-                                formatVnd(_preview.owedByMember[memberId] ?? 0),
-                              ),
-                            ],
-                          ),
+                      Expanded(
+                        child: Text(
+                          memberId == widget.creatorUid
+                              ? 'Bạn'
+                              : _members
+                                    .firstWhere((m) => m.memberId == memberId)
+                                    .name,
                         ),
+                      ),
+                      Text(formatVnd(_preview.owedByMember[memberId] ?? 0)),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Thành viên (${_members.length + 1})',
-                    style: Theme.of(context).textTheme.titleSmall,
-                  ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.person_add_outlined),
-                    label: const Text('Thêm'),
-                    onPressed: _showAddMemberDialog,
-                  ),
-                ],
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 12),
+              SectionHeading(
+                'Thành viên (${_members.length + 1})',
+                action: TextButton.icon(
+                  onPressed: _showAddMemberDialog,
+                  icon: const Icon(Icons.person_add_outlined, size: 18),
+                  label: const Text('Thêm'),
+                ),
               ),
               ListTile(
-                leading: const CircleAvatar(child: Icon(Icons.person)),
+                contentPadding: EdgeInsets.zero,
+                leading: InitialAvatar(_creatorName ?? 'Bạn'),
                 title: const Text('Bạn (người tạo)'),
+                subtitle: Text(_creatorName ?? 'Bạn'),
+                trailing: const Icon(Icons.edit_outlined, size: 20),
                 onTap: () => _editMember(
                   _MemberEntry(
                     name: _creatorName ?? 'Bạn',
@@ -696,66 +690,34 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                     isGuest: false,
                   ),
                 ),
-                subtitle: Text(
-                  '${_creatorName ?? 'Bạn'} · Chạm để đổi tên trong phiên',
-                ),
-                trailing: Text(
-                  formatVnd(_preview.owedByMember[widget.creatorUid] ?? 0),
-                ),
               ),
               for (final member in _members)
                 ListTile(
-                  leading: CircleAvatar(
-                    child: Text(
-                      member.name.isEmpty ? '?' : member.name[0].toUpperCase(),
-                    ),
-                  ),
+                  contentPadding: EdgeInsets.zero,
+                  leading: InitialAvatar(member.name),
                   title: Text(member.name),
                   subtitle: member.isGuest ? const Text('Khách') : null,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        formatVnd(_preview.owedByMember[member.memberId] ?? 0),
+                  trailing: PopupMenuButton<String>(
+                    tooltip: 'Sửa thành viên',
+                    onSelected: (value) {
+                      if (value == 'name') {
+                        _editMember(member);
+                      } else {
+                        _removeMember(member);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'name',
+                        child: Text('Đổi tên trong phiên'),
                       ),
-                      PopupMenuButton<String>(
-                        tooltip: 'Sửa thành viên',
-                        onSelected: (value) {
-                          if (value == 'name') {
-                            _editMember(member);
-                          } else {
-                            _removeMember(member);
-                          }
-                        },
-                        itemBuilder: (_) => const [
-                          PopupMenuItem(
-                            value: 'name',
-                            child: Text('Đổi tên trong phiên'),
-                          ),
-                          PopupMenuItem(
-                            value: 'remove',
-                            child: Text('Xoá khỏi phiên'),
-                          ),
-                        ],
+                      PopupMenuItem(
+                        value: 'remove',
+                        child: Text('Xoá khỏi phiên'),
                       ),
                     ],
                   ),
                 ),
-              const SizedBox(height: 20),
-              FButton(
-                onPress: _isSaving ? null : _submit,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(
-                        widget.initialSession == null
-                            ? 'Tạo phiên'
-                            : 'Lưu thay đổi',
-                      ),
-              ),
             ],
           ),
         ),
@@ -831,7 +793,7 @@ class _ExpenseEditorCard extends StatelessWidget {
                 controller: expense.descriptionController,
               ),
               label: const Text('Mô tả'),
-              hint: 'Ví dụ: Ăn tối, vé xem phim',
+              hint: 'Ăn tối, vé xe…',
               onTap: onActive,
             ),
             const SizedBox(height: 8),
@@ -852,7 +814,7 @@ class _ExpenseEditorCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 IconButton(
                   onPressed: onOcr,
-                  tooltip: 'Quét bill bằng OCR',
+                  tooltip: 'Quét hoá đơn',
                   icon: const Icon(Icons.document_scanner_outlined),
                 ),
               ],
@@ -970,8 +932,6 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Đưa bạn bè quét mã này để kết bạn.'),
-            const SizedBox(height: 16),
             CustomPaint(
               size: const Size(200, 200),
               painter: QrPainter(
@@ -1099,7 +1059,7 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                 child: FilledButton.tonalIcon(
                   onPressed: () => _showMyQrCode(context),
                   icon: const Icon(Icons.qr_code_2),
-                  label: const Text('Hiện QR của tôi'),
+                  label: const Text('QR của tôi'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1120,7 +1080,7 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                   control: FTextFieldControl.managed(
                     controller: _guestController,
                   ),
-                  label: const Text('Tên khách (nếu không có app)'),
+                  label: const Text('Tên khách'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1136,7 +1096,7 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
             ],
           ),
           const SizedBox(height: 16),
-          const Text('Chọn từ danh sách bạn bè:'),
+          const Text('Bạn bè'),
           const SizedBox(height: 8),
           SizedBox(
             height: 200,
