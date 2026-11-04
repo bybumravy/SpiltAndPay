@@ -141,7 +141,7 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
                   decoration: BoxDecoration(
                     color: _selectedStyle == entry.key
                         ? theme.colorScheme.primaryContainer.withAlpha(80)
-                        : theme.colorScheme.surfaceVariant.withAlpha(40),
+                        : theme.colorScheme.surfaceContainerHighest.withAlpha(40),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _selectedStyle == entry.key

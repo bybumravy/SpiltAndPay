@@ -211,7 +211,7 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
                     return ListView.separated(
                       controller: scrollController,
                       itemCount: banks.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final bank = banks[index];
                         return ListTile(
