@@ -86,8 +86,9 @@ class NotificationRepository {
     }
   }
 
-  /// Gửi lời nhắc trả tiền (Manual Nudge) với kiểm tra giới hạn tần suất 24h
-  Future<void> sendDebtReminder({
+  /// Gửi lời nhắc trả tiền (Manual Nudge) với kiểm tra giới hạn tần suất 24h.
+  /// Trả về nội dung lời nhắc để chia sẻ qua Zalo/Messenger/SMS.
+  Future<String> sendDebtReminder({
     required String debtId,
     required String targetUid,
     required String creditorName,
@@ -130,10 +131,19 @@ class NotificationRepository {
       throw StateError('Chỉ chủ nợ mới có quyền gửi lời nhắc.');
     }
 
-    // Kiểm tra Rate Limit 24h
+    // Kiểm tra Rate Limit 24h (từ Firestore hoặc local SharedPreferences)
     final lastReminder = debtData['lastReminderAt'];
+    DateTime? lastDate;
     if (lastReminder is Timestamp) {
-      final lastDate = lastReminder.toDate();
+      lastDate = lastReminder.toDate();
+    } else {
+      final prefs = await SharedPreferences.getInstance();
+      final localMs = prefs.getInt('splitpay_last_reminder_$debtId');
+      if (localMs != null) {
+        lastDate = DateTime.fromMillisecondsSinceEpoch(localMs);
+      }
+    }
+    if (lastDate != null) {
       final diff = DateTime.now().difference(lastDate);
       if (diff.inHours < 24) {
         final hoursLeft = 24 - diff.inHours;
@@ -143,29 +153,43 @@ class NotificationRepository {
       }
     }
 
-    // 1. Ghi thông báo vào hộp thư của con nợ (quyền create luôn được phép cho user đã login)
-    final newNotifId = const Uuid().v4();
-    final notifRef = _db
-        .collection('users')
-        .doc(targetUid)
-        .collection('notifications')
-        .doc(newNotifId);
-
-    await notifRef.set({
-      'title': '💌 Lời nhắc thanh toán từ $creditorName',
-      'body': body,
-      'type': NotificationType.debtReminder.name,
-      'targetDebtId': debtId,
-      'isRead': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    // 2. Cập nhật mốc thời gian nhắc nợ trên document nợ (nếu cloud rules cho phép)
+    // 1. Cố gắng ghi thông báo vào hộp thư Cloud Firestore (nếu rules trên cloud cho phép)
     try {
-      await debtRef.update({'lastReminderAt': FieldValue.serverTimestamp()});
+      final newNotifId = const Uuid().v4();
+      final notifRef = _db
+          .collection('users')
+          .doc(targetUid)
+          .collection('notifications')
+          .doc(newNotifId);
+
+      await notifRef.set({
+        'title': '💌 Lời nhắc thanh toán từ $creditorName',
+        'body': body,
+        'type': NotificationType.debtReminder.name,
+        'targetDebtId': debtId,
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      try {
+        await debtRef.update({'lastReminderAt': FieldValue.serverTimestamp()});
+      } catch (e) {
+        debugPrint('sendDebtReminder: update lastReminderAt skipped ($e)');
+      }
     } catch (e) {
-      debugPrint('sendDebtReminder: update lastReminderAt skipped ($e)');
+      debugPrint('sendDebtReminder: cloud notification write skipped ($e)');
     }
+
+    // 2. Ghi mốc thời gian nhắc nợ cục bộ (SharedPreferences) để bảo đảm rate limit 24h
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        'splitpay_last_reminder_$debtId',
+        DateTime.now().millisecondsSinceEpoch,
+      );
+    } catch (_) {}
+
+    return body;
   }
 }
 

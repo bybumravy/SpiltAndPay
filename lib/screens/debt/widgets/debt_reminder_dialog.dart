@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -72,7 +74,9 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
     final navigator = Navigator.of(context);
 
     try {
-      await ref.read(notificationRepositoryProvider).sendDebtReminder(
+      final body = await ref
+          .read(notificationRepositoryProvider)
+          .sendDebtReminder(
             debtId: widget.debtId,
             targetUid: widget.targetUid,
             creditorName: widget.creditorName,
@@ -83,18 +87,27 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
 
       if (mounted) {
         navigator.pop();
+        await Clipboard.setData(ClipboardData(text: body));
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Đã gửi lời nhắc tới ${widget.debtorName}!'),
+            content: Text(
+              'Đã gửi lời nhắc! Đã sao chép nội dung để gửi cho ${widget.debtorName}.',
+            ),
             backgroundColor: Colors.green.shade700,
+            duration: const Duration(seconds: 4),
           ),
         );
+        try {
+          await Share.share(body, subject: 'Lời nhắc thanh toán SplitPay');
+        } catch (_) {}
       }
     } catch (e) {
       if (mounted) {
         messenger.showSnackBar(
           SnackBar(
-            content: Text(e is StateError ? e.message : 'Gửi lời nhắc thất bại.'),
+            content: Text(
+              e is StateError ? e.message : 'Gửi lời nhắc thất bại: $e',
+            ),
             backgroundColor: Colors.red.shade700,
           ),
         );
@@ -128,7 +141,9 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
             const SizedBox(height: 12),
             Text(
               'Chọn phong cách lời nhắc:',
-              style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             for (final entry in _styles.entries) ...[
@@ -141,7 +156,9 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
                   decoration: BoxDecoration(
                     color: _selectedStyle == entry.key
                         ? theme.colorScheme.primaryContainer.withAlpha(80)
-                        : theme.colorScheme.surfaceContainerHighest.withAlpha(40),
+                        : theme.colorScheme.surfaceContainerHighest.withAlpha(
+                            40,
+                          ),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
                       color: _selectedStyle == entry.key
@@ -153,11 +170,13 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(entry.value.icon,
-                          size: 20,
-                          color: _selectedStyle == entry.key
-                              ? theme.colorScheme.primary
-                              : Colors.grey),
+                      Icon(
+                        entry.value.icon,
+                        size: 20,
+                        color: _selectedStyle == entry.key
+                            ? theme.colorScheme.primary
+                            : Colors.grey,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -165,7 +184,10 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
                           children: [
                             Text(
                               entry.value.label,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
                             ),
                             const SizedBox(height: 2),
                             Text(
@@ -203,7 +225,10 @@ class _DebtReminderDialogState extends ConsumerState<DebtReminderDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Icon(Icons.send, size: 16),
           label: const Text('Gửi lời nhắc'),
