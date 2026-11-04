@@ -67,3 +67,37 @@ final result: passed
 - Title, members, expenses, payer and participant changes use the existing editor and atomic save. Returning without saving discards the draft. Closed sessions and non-creators do not receive an editing entry.
 - Regression coverage now navigates from detail into the editor with the original snapshot, cancels a draft, reopens it, and saves changed title/description/amount through saveOpenSession. Existing editor tests continue covering member removal, payer/participant choices, multiple items and legacy migration. Tests for the removed quick-edit dialogs were replaced by the consolidated-flow checks.
 - Full suite: 86 tests passed; changed screen/test analyzer: no issues. Updated normal/narrow detail renders were generated; normal detail was visually inspected after removing duplicate controls.
+
+## Friend invitation consent
+
+- Email and friend QR actions now send invitations. The “Lời mời” tab shows incoming requests with accept/reject controls and outgoing requests with cancellation. A transaction checks existing invitations/contacts, and acceptance atomically writes both contact documents with the accepted request.
+- Firestore rules enforce recipient-only acceptance, restrict invitation reads to participants, and block direct contact creation without acceptance. Removing a friend deletes both contact entries and associated invitation records. Existing contacts are retained.
+- Scanning a user QR inside the session editor only adds a session participant; it no longer creates a friendship implicitly.
+- Flutter suite: 89 passed, including email invitation dispatch and accept/reject/cancel UI interactions. Firestore emulator rules suite: 49 passed, including consent, crossed invitations, forgery, self-invites and participant access. Changed source analyzer passed. Rules deployed to splitandpay-2a413.
+- Friend request UI capture inspected at 390×844. Camera scanning and two real signed-in accounts were not exercised in these fixture tests.
+
+## Invitation layout refinement
+
+- Invitation tab now fills the content area; the contact-search/list region is hidden in this tab, removing the split-height layout.
+- Incoming and outgoing invitations are grouped separately with counts. Consistent 24px page gutters, 16px bordered surfaces, initial avatars and wrapped 44px minimum actions replace loose labels/buttons. Redundant status copy removed.
+- Six visual/interaction tests passed, including invitation accept/reject/cancel and 320px/1.3 text-scale with a long Vietnamese name. Both normal and narrow invitation captures inspected. Screen analyzer found no issues.
+
+## Sender confirmation after QR scanning
+
+- Both camera and gallery QR results resolve the user's profile and show name/email with Send invitation/Cancel. No invitation is sent until the sender confirms.
+- Repeated camera detections of the same code are ignored until the user chooses Scan again. Gallery selection and camera handling share an in-flight guard.
+- Seven visual/interaction tests passed, including simulated camera detection, cancelling without a repository send, repeated-code suppression, explicit rescan and sending once after confirmation. Screen analyzer passed; APK built. Physical camera/gallery input was not exercised by the widget test.
+
+## Sequential bill capture
+
+- Session editor has a single batch scan entry. Each native-camera capture is processed into a local draft with image review/zoom, editable description/amount and removal. Capture cancellation leaves drafts untouched; failed/uncertain OCR requires manual amount entry rather than applying the largest guessed number.
+- Shared payer excludes guests; shared participants default to current members and may be deselected. Confirming appends new expense entries; an untouched empty starter entry is replaced. Each expense can still be edited individually in the session editor. Existing atomic session save remains the persistence boundary; scanned photos are local review material, not uploaded attachments.
+- Full Flutter suite: 93 passed. Expanded batch test subsequently passed with a shared payer change and participant deselection across both drafts. Changed files analyzer passed; debug APK built and installed on emulator. Meizu was not connected during this update.
+- Normal/narrow review captures inspected. Tests inject capture/OCR results and use image placeholders; physical camera capture and actual receipt recognition accuracy were not validated in this run.
+
+## OCR failure on real captured receipt
+
+- Meizu recognition produced text, but column-ordered OCR blocks separated the total label from its amount; space-grouped VND such as 606 549 was also unsupported. The photographed electricity receipt exposed both failures.
+- OCR lines now reconstruct visual rows from bounding boxes before parsing. Amounts support regular/nonbreaking/narrow spaces; labels normalize Vietnamese accents. Column table headers and company-name totals no longer qualify as final-total labels. OCR exceptions and missing-total results now have distinct review messages.
+- Full suite: 96 passed, including spatial column grouping, whitespace amounts and accented/noisy labels. Analyzer passed. Native Android OCR against the actual photographed receipt passed on emulator with expected total 606549; raw text recognition was also exercised on Meizu. This validates that receipt, not arbitrary receipt accuracy.
+- Temporary device diagnostics and image fixture were removed from the repository after verification. Normal application APK rebuilt for installation.

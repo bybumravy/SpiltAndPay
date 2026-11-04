@@ -8,8 +8,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:splitpay/core/firebase_providers.dart';
+import 'package:splitpay/core/bill_ocr.dart';
+import 'package:splitpay/screens/session/batch_bill_screen.dart';
 import 'package:splitpay/models/app_user.dart';
+import 'package:splitpay/models/friend_request.dart';
 import 'package:splitpay/models/debt.dart';
 import 'package:splitpay/models/expense.dart';
 import 'package:splitpay/models/payment.dart';
@@ -48,6 +52,28 @@ class _Users implements UserRepository {
   Future<AppUser?> findByUid(String uid) async => users[uid];
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RequestUsers extends _Users {
+  final sent = <String>[];
+  @override
+  Future<AppUser?> findByEmail(String email) async => users['linh'];
+  @override
+  Future<void> sendFriendRequest(String senderId, AppUser recipient) async {
+    sent.add('$senderId:${recipient.uid}');
+  }
+
+  final accepted = <String>[];
+  final dismissed = <String>[];
+  @override
+  Future<void> acceptFriendRequest(FriendRequest request) async {
+    accepted.add(request.id);
+  }
+
+  @override
+  Future<void> dismissFriendRequest(FriendRequest request) async {
+    dismissed.add(request.id);
+  }
 }
 
 const users = {
@@ -131,6 +157,8 @@ Future<void> pumpScreen(
   Widget screen, {
   Size size = const Size(390, 844),
   double textScale = 1,
+  UserRepository? previewRepository,
+  List<FriendRequest> previewRequests = const [],
   Session? previewSession,
   List<SessionMember>? previewMembers,
   List<Expense>? previewExpenses,
@@ -150,10 +178,12 @@ Future<void> pumpScreen(
     ProviderScope(
       overrides: [
         authProvider.overrideWithValue(_Auth()),
-        userRepositoryProvider.overrideWithValue(_Users()),
+        userRepositoryProvider.overrideWithValue(previewRepository ?? _Users()),
         for (final user in {...users, ...?previewUsers}.values)
           currentUserProvider(user.uid)
               .overrideWith((ref) => Stream.value(user)),
+        friendRequestsProvider('hoang')
+            .overrideWith((ref) => Stream.value(previewRequests)),
         contactsProvider(
           'hoang',
         ).overrideWith((ref) => Stream.value([users['linh']!, users['nam']!])),
@@ -476,4 +506,176 @@ void main() {
       await capture(tester, 'profile-narrow');
     },
   );
+  testWidgets(
+    'incoming invites can be accepted or rejected and outgoing invites cancelled',
+    (tester) async {
+      addTearDown(() {
+        tester.view.resetDevicePixelRatio();
+        tester.binding.setSurfaceSize(null);
+      });
+      final repo = _RequestUsers();
+      await pumpScreen(
+        tester,
+        const AddFriendScreen(currentUid: 'hoang'),
+        previewRepository: repo,
+        previewRequests: const [
+          FriendRequest(
+            id: 'linh_hoang',
+            senderId: 'linh',
+            recipientId: 'hoang',
+            senderName: 'Linh',
+            recipientName: 'Hoàng',
+          ),
+          FriendRequest(
+            id: 'hoang_nam',
+            senderId: 'hoang',
+            recipientId: 'nam',
+            senderName: 'Hoàng',
+            recipientName: 'Nam',
+          ),
+        ],
+      );
+      await tester.ensureVisible(find.widgetWithText(Tab, 'Lời mời'));
+      await tester.tap(find.widgetWithText(Tab, 'Lời mời'));
+      await tester.pumpAndSettle();
+      expect(find.text('Chấp nhận'), findsOneWidget);
+      expect(find.text('Huỷ lời mời'), findsOneWidget);
+      await tester.tap(find.text('Chấp nhận'));
+      await tester.pumpAndSettle();
+      expect(repo.accepted, ['linh_hoang']);
+      await tester.tap(find.text('Từ chối'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Huỷ lời mời'));
+      await tester.tap(find.text('Huỷ lời mời'));
+      await tester.pumpAndSettle();
+      expect(repo.dismissed, ['linh_hoang', 'hoang_nam']);
+      expect(tester.takeException(), isNull);
+      await capture(tester, 'friend-requests');
+      expect(find.text('Tìm bạn bè'), findsNothing);
+      await pumpScreen(
+        tester,
+        const AddFriendScreen(currentUid: 'hoang'),
+        size: const Size(320, 740),
+        textScale: 1.3,
+        previewRepository: repo,
+        previewRequests: const [
+          FriendRequest(
+            id: 'long_hoang',
+            senderId: 'long',
+            recipientId: 'hoang',
+            senderName: 'Nguyễn Minh Anh với tên rất dài',
+            recipientName: 'Hoàng',
+          ),
+        ],
+      );
+      await tester.ensureVisible(find.widgetWithText(Tab, 'Lời mời'));
+      await tester.tap(find.widgetWithText(Tab, 'Lời mời'));
+      await tester.pumpAndSettle();
+      expect(find.text('Nguyễn Minh Anh với tên rất dài'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await capture(tester, 'friend-requests-narrow');
+    },
+  );
+  testWidgets(
+    'email search sends an invitation instead of adding a friend directly',
+    (tester) async {
+      addTearDown(() {
+        tester.view.resetDevicePixelRatio();
+        tester.binding.setSurfaceSize(null);
+      });
+      final repo = _RequestUsers();
+      await pumpScreen(
+        tester,
+        const AddFriendScreen(currentUid: 'hoang'),
+        previewRepository: repo,
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Email bạn bè'),
+        'linh@example.com',
+      );
+      await tester.tap(find.byIcon(Icons.search).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Gửi lời mời'));
+      await tester.pumpAndSettle();
+      expect(repo.sent, ['hoang:linh']);
+      expect(repo.accepted, isEmpty);
+      expect(find.text('Đã gửi lời mời đến Linh'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'QR requires sender confirmation and cancel never sends an invitation',
+    (tester) async {
+      addTearDown(() {
+        tester.view.resetDevicePixelRatio();
+        tester.binding.setSurfaceSize(null);
+      });
+      final repo = _RequestUsers();
+      await pumpScreen(
+        tester,
+        const AddFriendScreen(currentUid: 'hoang'),
+        previewRepository: repo,
+      );
+      await tester.tap(find.widgetWithText(Tab, 'Quét QR'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      void scan() => tester
+          .widget<MobileScanner>(find.byType(MobileScanner))
+          .onDetect!(BarcodeCapture(barcodes: [Barcode(rawValue: 'linh')]));
+      scan();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Gửi lời mời kết bạn?'), findsOneWidget);
+      expect(find.text('linh@example.com'), findsWidgets);
+      expect(repo.sent, isEmpty);
+      await tester.tap(find.text('Huỷ'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(repo.sent, isEmpty);
+      scan();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Gửi lời mời kết bạn?'), findsNothing);
+      await tester.tap(find.text('Quét lại'));
+      scan();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text('Gửi lời mời'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(repo.sent, ['hoang:linh']);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('batch bill review fits phone and narrow large-text layouts', (
+    tester,
+  ) async {
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.binding.setSurfaceSize(null);
+    });
+    for (final narrow in [false, true]) {
+      await pumpScreen(
+        tester,
+        BatchBillScreen(
+          members: const {'hoang': 'Hoàng', 'linh': 'Linh', 'nam': 'Nam'},
+          payerIds: const {'hoang', 'linh', 'nam'},
+          initialPayerId: 'hoang',
+          capture: () async => '/preview-bill.jpg',
+          scan: (_) async => const BillScanResult(
+            total: 350000,
+            confident: true,
+            candidates: [350000],
+          ),
+        ),
+        size: narrow ? const Size(320, 740) : const Size(390, 844),
+        textScale: narrow ? 1.3 : 1,
+      );
+      await tester.tap(find.text('Chụp hoá đơn'));
+      await tester.pumpAndSettle();
+      expect(find.text('350.000'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await capture(tester, narrow ? 'batch-bills-narrow' : 'batch-bills');
+    }
+  });
 }

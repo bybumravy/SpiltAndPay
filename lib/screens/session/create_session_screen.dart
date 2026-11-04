@@ -1,13 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../core/bill_ocr.dart';
+import 'batch_bill_screen.dart';
 import '../../ui/app_theme.dart';
 import '../../core/expense_allocation.dart';
 import '../../core/money.dart';
@@ -142,44 +139,40 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
       ),
   ], guestMemberIds: _guestIds);
 
-  Future<void> _pickAndOcr(int index) async {
-    final target = _expenses[index];
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 90,
+  Future<void> _scanBills() async {
+    final result = await Navigator.push<List<ScannedExpense>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BatchBillScreen(
+          members: {
+            widget.creatorUid: _creatorName ?? 'Bạn',
+            for (final m in _members) m.memberId: m.name,
+          },
+          payerIds: {
+            widget.creatorUid,
+            for (final m in _members)
+              if (!m.isGuest) m.memberId,
+          },
+          initialPayerId: widget.creatorUid,
+        ),
+      ),
     );
-    if (picked == null || !mounted || !_expenses.contains(target)) return;
-    setState(() => _activeExpenseIndex = index);
-    try {
-      final scan = await scanBill(File(picked.path));
-      if (!mounted || !_expenses.contains(target)) return;
-      if (scan.total == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không nhận ra số tiền nào từ ảnh.')),
-        );
-        return;
+    if (!mounted || result == null || result.isEmpty) return;
+    setState(() {
+      if (_expenses.length == 1 &&
+          _expenses.single.amount == 0 &&
+          _expenses.single.descriptionController.text.trim().isEmpty) {
+        _expenses.removeLast().dispose();
       }
-      setState(
-        () => _expenses[index].amountController.text = formatVndInput(
-          scan.total!,
-        ),
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            scan.confident
-                ? 'Đã đọc ${formatVnd(scan.total!)}'
-                : 'Không tìm thấy tổng tiền. Tạm dùng ${formatVnd(scan.total!)}.',
-          ),
-        ),
-      );
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('OCR thất bại. Nhập tay số tiền.')),
-        );
+      for (final item in result) {
+        final entry = _ExpenseEntry(payerId: item.payerId);
+        entry.descriptionController.text = item.description;
+        entry.amountController.text = formatVndInput(item.amount);
+        entry.participantIds.addAll(item.participantIds);
+        _expenses.add(entry);
       }
-    }
+      _activeExpenseIndex = _expenses.length - result.length;
+    });
   }
 
   Future<void> _showAddMemberDialog() async {
@@ -608,6 +601,15 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                   label: const Text('Thêm khoản chi'),
                 ),
               ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: _scanBills,
+                  icon: const Icon(Icons.document_scanner_outlined),
+                  label: const Text('Quét nhiều hoá đơn'),
+                ),
+              ),
+              const SizedBox(height: 16),
               for (var i = 0; i < _expenses.length; i++) ...[
                 _ExpenseEditorCard(
                   key: ValueKey(_expenses[i].key),
@@ -625,7 +627,6 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                       : null,
                   onChoosePayer: () => _choosePayer(i),
                   onChooseParticipants: () => _editParticipants(i),
-                  onOcr: () => _pickAndOcr(i),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -738,7 +739,6 @@ class _ExpenseEditorCard extends StatelessWidget {
   final VoidCallback? onRemove;
   final VoidCallback onChoosePayer;
   final VoidCallback onChooseParticipants;
-  final VoidCallback onOcr;
 
   const _ExpenseEditorCard({
     super.key,
@@ -753,7 +753,6 @@ class _ExpenseEditorCard extends StatelessWidget {
     required this.onRemove,
     required this.onChoosePayer,
     required this.onChooseParticipants,
-    required this.onOcr,
   });
 
   @override
@@ -810,12 +809,6 @@ class _ExpenseEditorCard extends StatelessWidget {
                     inputFormatters: [VndInputFormatter()],
                     onTap: onActive,
                   ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: onOcr,
-                  tooltip: 'Quét hoá đơn',
-                  icon: const Icon(Icons.document_scanner_outlined),
                 ),
               ],
             ),
