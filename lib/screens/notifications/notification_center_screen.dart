@@ -33,6 +33,9 @@ class NotificationCenterScreen extends ConsumerWidget {
             icon: const Icon(Icons.done_all),
             tooltip: 'Đánh dấu tất cả đã đọc',
             onPressed: () async {
+              final notifs = ref.read(userNotificationsProvider(user.uid)).valueOrNull ?? [];
+              final ids = notifs.map((n) => n.id).toList();
+              await ref.read(readNotificationIdsProvider.notifier).markAllRead(ids);
               await ref.read(notificationRepositoryProvider).markAllAsRead(user.uid);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -143,6 +146,7 @@ class _NotificationTile extends ConsumerWidget {
   Future<void> _handleTap(BuildContext context, WidgetRef ref) async {
     // 1. Đánh dấu đã đọc
     if (!notification.isRead) {
+      await ref.read(readNotificationIdsProvider.notifier).markRead(notification.id);
       await ref
           .read(notificationRepositoryProvider)
           .markAsRead(currentUid, notification.id);

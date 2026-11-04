@@ -1,3 +1,6 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/debt.dart';
+import 'debt_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -53,19 +56,27 @@ class NotificationRepository {
 
   /// Đánh dấu một thông báo đã đọc
   Future<void> markAsRead(String uid, String notificationId) async {
-    await _notifCol(uid).doc(notificationId).update({'isRead': true});
+    try {
+      await _notifCol(uid).doc(notificationId).update({'isRead': true});
+    } catch (e) {
+      debugPrint('markAsRead error: $e');
+    }
   }
 
   /// Đánh dấu tất cả thông báo đã đọc
   Future<void> markAllAsRead(String uid) async {
-    final unread = await _notifCol(uid).where('isRead', isEqualTo: false).get();
-    if (unread.docs.isEmpty) return;
+    try {
+      final unread = await _notifCol(uid).where('isRead', isEqualTo: false).get();
+      if (unread.docs.isEmpty) return;
 
-    final batch = _db.batch();
-    for (final doc in unread.docs) {
-      batch.update(doc.reference, {'isRead': true});
+      final batch = _db.batch();
+      for (final doc in unread.docs) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+      await batch.commit();
+    } catch (e) {
+      debugPrint('markAllAsRead error: $e');
     }
-    await batch.commit();
   }
 
   /// Gửi lời nhắc trả tiền (Manual Nudge) với kiểm tra giới hạn tần suất 24h
@@ -149,12 +160,90 @@ final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
   );
 });
 
+class ReadNotificationIdsNotifier extends StateNotifier<Set<String>> {
+  ReadNotificationIdsNotifier() : super(<String>{}) {
+    _load();
+  }
+
+  static const _key = 'splitpay_read_notification_ids';
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_key) ?? [];
+    state = list.toSet();
+  }
+
+  Future<void> markRead(String notifId) async {
+    if (state.contains(notifId)) return;
+    final updated = {...state, notifId};
+    state = updated;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_key, updated.toList());
+  }
+
+  Future<void> markAllRead(List<String> notifIds) async {
+    final updated = {...state, ...notifIds};
+    state = updated;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_key, updated.toList());
+  }
+}
+
+final readNotificationIdsProvider =
+    StateNotifierProvider<ReadNotificationIdsNotifier, Set<String>>((ref) {
+  return ReadNotificationIdsNotifier();
+});
+
 final userNotificationsProvider =
     StreamProvider.family<List<AppNotification>, String>((ref, uid) {
-  return ref.watch(notificationRepositoryProvider).watchNotifications(uid);
+  final debtsAsync = ref.watch(userDebtsProvider(uid));
+  final readIds = ref.watch(readNotificationIdsProvider);
+
+  final debts = debtsAsync.valueOrNull ?? [];
+  final smartNotifs = <AppNotification>[];
+
+  for (final debt in debts) {
+    final owed = debt.amountOwedBy(uid);
+    final debtDocId = Debt.docId(debt.userA, debt.userB);
+
+    if (owed > 0) {
+      final notifId = 'debt_need_pay_$debtDocId';
+      smartNotifs.add(
+        AppNotification(
+          id: notifId,
+          title: '🔔 Cần thanh toán nợ',
+          body: 'Bạn đang có khoản nợ ${formatVnd(owed)}. Chạm để mở App Ngân hàng chuyển khoản ngay!',
+          type: NotificationType.debtReminder,
+          targetDebtId: debtDocId,
+          isRead: readIds.contains(notifId),
+          createdAt: debt.updatedAt,
+        ),
+      );
+    } else if (owed < 0) {
+      final notifId = 'debt_lend_$debtDocId';
+      smartNotifs.add(
+        AppNotification(
+          id: notifId,
+          title: '🤝 Khoản tiền cho vay',
+          body: 'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết hoặc gửi lời nhắc!',
+          type: NotificationType.debtReminder,
+          targetDebtId: debtDocId,
+          isRead: readIds.contains(notifId),
+          createdAt: debt.updatedAt,
+        ),
+      );
+    }
+  }
+
+  return ref.watch(notificationRepositoryProvider).watchNotifications(uid).map((cloudNotifs) {
+    final all = [...smartNotifs, ...cloudNotifs];
+    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  });
 });
 
 final unreadNotificationCountProvider =
-    StreamProvider.family<int, String>((ref, uid) {
-  return ref.watch(notificationRepositoryProvider).watchUnreadCount(uid);
+    Provider.family<AsyncValue<int>, String>((ref, uid) {
+  final notifsAsync = ref.watch(userNotificationsProvider(uid));
+  return notifsAsync.whenData((notifs) => notifs.where((n) => !n.isRead).length);
 });
