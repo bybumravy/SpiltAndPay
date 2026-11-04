@@ -11,6 +11,7 @@ import '../../debt/debt_detail_screen.dart';
 import '../../friends/add_friend_screen.dart';
 import '../../session/create_session_screen.dart';
 import '../../session/session_detail_screen.dart';
+import '../widgets/notification_bell_button.dart';
 import 'widgets/action_required_section.dart';
 import 'widgets/net_balance_card.dart';
 import 'widgets/quick_actions_bar.dart';
@@ -79,6 +80,9 @@ class DashboardTab extends ConsumerWidget {
           ),
           orElse: () => const Text('Tổng quan tài chính'),
         ),
+        actions: [
+          NotificationBellButton(currentUid: user.uid),
+        ],
       ),
       body: debtsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),

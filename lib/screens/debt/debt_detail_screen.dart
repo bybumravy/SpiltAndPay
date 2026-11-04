@@ -13,6 +13,7 @@ import '../../repositories/debt_repository.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
 import 'widgets/bank_chooser_sheet.dart';
+import 'widgets/debt_reminder_dialog.dart';
 
 class DebtDetailScreen extends ConsumerWidget {
   final Debt debt;
@@ -104,7 +105,13 @@ class DebtDetailScreen extends ConsumerWidget {
                       myName: myName,
                       otherName: otherUser?.name ?? '',
                     )
-                  : _CreditorSection(otherUserName: otherUser?.name ?? otherUid),
+                  : _CreditorSection(
+                      debtId: debtId,
+                      targetUid: otherUid,
+                      creditorName: myName,
+                      debtorName: otherUser?.name ?? otherUid,
+                      amount: netAmount.abs(),
+                    ),
             ),
             const Divider(height: 1),
 
@@ -409,14 +416,46 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
 // ── Chủ nợ: hướng dẫn ──────────────────────────────────────────────────────
 
 class _CreditorSection extends StatelessWidget {
-  final String otherUserName;
-  const _CreditorSection({required this.otherUserName});
+  final String debtId;
+  final String targetUid;
+  final String creditorName;
+  final String debtorName;
+  final int amount;
+
+  const _CreditorSection({
+    required this.debtId,
+    required this.targetUid,
+    required this.creditorName,
+    required this.debtorName,
+    required this.amount,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      '$otherUserName sẽ chuyển tiền cho bạn. Xác nhận khi nhận được.',
-      style: const TextStyle(color: Colors.grey),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '$debtorName sẽ chuyển tiền cho bạn. Xác nhận khi nhận được.',
+          style: const TextStyle(color: Colors.grey),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () {
+            DebtReminderDialog.show(
+              context,
+              debtId: debtId,
+              targetUid: targetUid,
+              creditorName: creditorName,
+              debtorName: debtorName,
+              amount: amount,
+            );
+          },
+          icon: const Icon(Icons.forward_to_inbox, size: 18),
+          label: const Text('Nhắc bạn trả tiền'),
+        ),
+      ],
     );
   }
 }

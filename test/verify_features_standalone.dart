@@ -2,9 +2,10 @@ import 'dart:io';
 
 void main() {
   stdout.writeln('================================================================');
-  stdout.writeln('  BỘ TEST TỰ ĐỘNG: KIỂM THỬ 2 TÍNH NĂNG MỚI (PRM392)');
+  stdout.writeln('  BỘ TEST TỰ ĐỘNG: KIỂM THỬ 3 TÍNH NĂNG MỚI (PRM392)');
   stdout.writeln('  1. Dashboard Tổng quan Tài chính');
   stdout.writeln('  2. Mở trực tiếp App Ngân hàng (Deep Link & Package Intent)');
+  stdout.writeln('  3. Hệ thống Nhắc nợ & Cảnh báo (Notification & In-App Alert)');
   stdout.writeln('================================================================\n');
 
   var totalTests = 0;
@@ -99,7 +100,6 @@ void main() {
   );
 
   stdout.writeln('\n--- NHÓM 4: NỘI DUNG CHUYỂN KHOẢN & CLIPBOARD ---');
-  // Mô phỏng hàm transferNote
   String cleanNote(String raw) {
     const from = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
     const to = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooouuuuuuuuuuuyyyyyd';
@@ -141,6 +141,49 @@ void main() {
     manifestXml.contains('android:scheme="mbmobile"') &&
     manifestXml.contains('android:scheme="vcb"') &&
     manifestXml.contains('android:scheme="momo"')
+  );
+
+  // ==========================================================================
+  // PHẦN 3: TEST HỆ THỐNG NHẮC NỢ & CẢNH BÁO (NOTIFICATION & IN-APP ALERT)
+  // ==========================================================================
+  stdout.writeln('\n--- NHÓM 6: MODEL THÔNG BÁO & PHÂN LOẠI SỰ KIỆN ---');
+  final notifModelFile = File('lib/models/app_notification.dart');
+  assertTest('6.1. File lib/models/app_notification.dart tồn tại', notifModelFile.existsSync());
+
+  final notifModelCode = notifModelFile.readAsStringSync();
+  assertTest('6.2. Hỗ trợ đủ 4 loại sự kiện (debtReminder, sessionClosed, paymentPending, paymentConfirmed)',
+    notifModelCode.contains('debtReminder') &&
+    notifModelCode.contains('sessionClosed') &&
+    notifModelCode.contains('paymentPending') &&
+    notifModelCode.contains('paymentConfirmed')
+  );
+
+  stdout.writeln('\n--- NHÓM 7: RATE LIMIT 24H & PHONG CÁCH LỜI NHẮC ---');
+  final notifRepoFile = File('lib/repositories/notification_repository.dart');
+  assertTest('7.1. File lib/repositories/notification_repository.dart tồn tại', notifRepoFile.existsSync());
+
+  final notifRepoCode = notifRepoFile.readAsStringSync();
+  assertTest('7.2. Kiểm tra giới hạn tần suất 24h (Anti-spam Rate Limiting)',
+    notifRepoCode.contains('diff.inHours < 24') &&
+    notifRepoCode.contains('lastReminderAt')
+  );
+  assertTest('7.3. Hỗ trợ 3 phong cách nhắc nợ (funny, polite, gentle)',
+    notifRepoCode.contains("case 'funny':") &&
+    notifRepoCode.contains("case 'gentle':") &&
+    notifRepoCode.contains("case 'polite':")
+  );
+
+  stdout.writeln('\n--- NHÓM 8: FIRESTORE RULES BẢO MẬT THÔNG BÁO ---');
+  final rulesFile = File('firestore.rules');
+  assertTest('8.1. File firestore.rules tồn tại', rulesFile.existsSync());
+
+  final rulesCode = rulesFile.readAsStringSync();
+  assertTest('8.2. Ràng buộc bảo mật subcollection notifications/{notificationId}',
+    rulesCode.contains('match /notifications/{notificationId}') &&
+    rulesCode.contains("onlyChanges(['isRead'])")
+  );
+  assertTest('8.3. Cho phép cập nhật mốc lastReminderAt trên khoản nợ',
+    rulesCode.contains("onlyChanges(['lastReminderAt'])")
   );
 
   stdout.writeln('\n================================================================');

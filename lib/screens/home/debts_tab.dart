@@ -7,6 +7,8 @@ import '../../models/debt.dart';
 import '../../repositories/debt_repository.dart';
 import '../../repositories/user_repository.dart';
 import '../debt/debt_detail_screen.dart';
+import 'widgets/notification_bell_button.dart';
+import 'widgets/overdue_debt_banner.dart';
 
 class DebtsTab extends ConsumerWidget {
   const DebtsTab({super.key});
@@ -19,7 +21,12 @@ class DebtsTab extends ConsumerWidget {
     final debtsAsync = ref.watch(userDebtsProvider(user.uid));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Công nợ')),
+      appBar: AppBar(
+        title: const Text('Công nợ'),
+        actions: [
+          NotificationBellButton(currentUid: user.uid),
+        ],
+      ),
       body: debtsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Lỗi: $e')),
@@ -27,12 +34,32 @@ class DebtsTab extends ConsumerWidget {
           if (debts.isEmpty) {
             return const Center(child: Text('Không có công nợ nào'));
           }
-          return ListView.builder(
-            itemCount: debts.length,
-            itemBuilder: (_, i) => _DebtTile(
-              debt: debts[i],
-              currentUid: user.uid,
-            ),
+
+          final debtsToPay =
+              debts.where((d) => d.amountOwedBy(user.uid) > 0).toList();
+          final totalOwed = debtsToPay.fold<int>(
+            0,
+            (sum, d) => sum + d.amountOwedBy(user.uid),
+          );
+
+          return Column(
+            children: [
+              if (totalOwed > 0)
+                OverdueDebtBanner(
+                  totalOwed: totalOwed,
+                  count: debtsToPay.length,
+                  onTap: () {},
+                ),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: debts.length,
+                  itemBuilder: (_, i) => _DebtTile(
+                    debt: debts[i],
+                    currentUid: user.uid,
+                  ),
+                ),
+              ),
+            ],
           );
         },
       ),
