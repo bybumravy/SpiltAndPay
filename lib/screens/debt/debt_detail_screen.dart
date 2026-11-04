@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -252,10 +253,13 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
       }
     } catch (e) {
       if (mounted) {
+        final message = switch (e) {
+          StateError(:final message) => message,
+          FirebaseException(:final message) => message ?? 'Lỗi kết nối cơ sở dữ liệu.',
+          _ => 'Có lỗi xảy ra. Vui lòng thử lại.',
+        };
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.'),
-          ),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {
@@ -442,10 +446,13 @@ class _PaymentTile extends ConsumerWidget {
           );
     } catch (e) {
       if (context.mounted) {
+        final message = switch (e) {
+          StateError(:final message) => message,
+          FirebaseException(:final message) => message ?? 'Lỗi kết nối cơ sở dữ liệu.',
+          _ => 'Có lỗi xảy ra. Vui lòng thử lại.',
+        };
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.'),
-          ),
+          SnackBar(content: Text(message)),
         );
       }
     }
