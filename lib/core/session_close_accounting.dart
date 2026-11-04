@@ -133,13 +133,15 @@ SessionCloseResult calculateSessionClose({
       owed.update(entry.key, (value) => value + entry.value,
           ifAbsent: () => entry.value);
       if (member.isGuest || member.userId == null) {
-        obligations.add(CloseGuestObligation(
-          obligationId: '${expense.expenseId}_${member.memberId}',
-          expenseId: expense.expenseId,
-          payerId: payer.userId!,
-          guestMemberId: member.memberId,
-          amount: entry.value,
-        ));
+        if (entry.value > 0) {
+          obligations.add(CloseGuestObligation(
+            obligationId: '${expense.expenseId}_${member.memberId}',
+            expenseId: expense.expenseId,
+            payerId: payer.userId!,
+            guestMemberId: member.memberId,
+            amount: entry.value,
+          ));
+        }
         net.update(payer.userId!, (value) => value - entry.value);
       } else {
         net.update(member.userId!, (value) => value - entry.value,

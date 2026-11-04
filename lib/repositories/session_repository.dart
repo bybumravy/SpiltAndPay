@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../core/firebase_providers.dart';
 import '../core/expense_allocation.dart';
 import '../core/session_close_accounting.dart';
+import '../core/session_edit.dart';
 import '../models/debt.dart';
 import '../models/expense.dart';
 import '../models/session.dart';
@@ -43,7 +44,9 @@ class SessionRepository {
 
   String get _currentUid {
     final uid = _auth.currentUser?.uid;
-    if (uid == null) throw StateError('Bạn cần đăng nhập để thực hiện thao tác này.');
+    if (uid == null) {
+      throw StateError('Bạn cần đăng nhập để thực hiện thao tác này.');
+    }
     return uid;
   }
 
@@ -116,19 +119,20 @@ class SessionRepository {
     );
   }
 
-  void _assertCreatorOpen(
-    Map<String, dynamic>? data,
-    String actorUid,
-  ) {
+  void _assertCreatorOpen(Map<String, dynamic>? data, String actorUid) {
     if (data == null) throw StateError('Không tìm thấy phiên.');
-    if (data['creatorId'] != actorUid) throw StateError('Chỉ người tạo phiên được thao tác.');
+    if (data['creatorId'] != actorUid) {
+      throw StateError('Chỉ người tạo phiên được thao tác.');
+    }
     if (data['status'] != SessionStatus.open.name) {
       throw StateError('Chỉ phiên đang mở mới được sửa hoặc chốt.');
     }
   }
 
   void _ensureBatchWithinFirestoreLimit(int writes) {
-    if (writes > 500) throw ArgumentError('Phiên có quá nhiều bản ghi để chốt trong một lần.');
+    if (writes > 500) {
+      throw ArgumentError('Phiên có quá nhiều bản ghi để chốt trong một lần.');
+    }
   }
 
   Future<void> _commitCloseResult({
@@ -145,51 +149,56 @@ class SessionRepository {
       if (!debtIds.containsKey(debtId)) {
         final parts = [transfer.from, transfer.to]..sort();
         debtIds[debtId] = Debt(
-          userA: parts[0], userB: parts[1], balance: 0, updatedAt: DateTime.now(),
+          userA: parts[0],
+          userB: parts[1],
+          balance: 0,
+          updatedAt: DateTime.now(),
         );
       }
     }
     final debtRefs = {
       for (final id in debtIds.keys) id: _db.collection('debts').doc(id),
     };
-    final debtSnapshots = <String, DocumentSnapshot<Map<String, dynamic>>>{};
-    for (final entry in debtRefs.entries) {
-      debtSnapshots[entry.key] = await transaction.get(entry.value);
-    }
-
     for (final obligation in result.guestObligations) {
-      final obligationRef = sessionRef.collection('guestObligations').doc(obligation.obligationId);
-      transaction.set(obligationRef, GuestObligation(
-        obligationId: obligation.obligationId,
-        sessionId: sessionId,
-        expenseId: obligation.expenseId,
-        payerId: obligation.payerId,
-        guestMemberId: obligation.guestMemberId,
-        amount: obligation.amount,
-        createdAt: DateTime.now(),
-      ).toMap());
+      final obligationRef = sessionRef
+          .collection('guestObligations')
+          .doc(obligation.obligationId);
+      transaction.set(
+        obligationRef,
+        GuestObligation(
+          obligationId: obligation.obligationId,
+          sessionId: sessionId,
+          expenseId: obligation.expenseId,
+          payerId: obligation.payerId,
+          guestMemberId: obligation.guestMemberId,
+          amount: obligation.amount,
+          createdAt: DateTime.now(),
+        ).toMap(),
+      );
     }
 
     for (final transfer in result.transfers) {
       final debtId = Debt.docId(transfer.from, transfer.to);
       final debtRef = debtRefs[debtId]!;
-      final existing = debtSnapshots[debtId]!.data();
       final debt = debtIds[debtId]!;
       final delta = Debt.balanceDelta(
         debtorUid: transfer.from,
         creditorUid: transfer.to,
         amount: transfer.amount,
       );
-      transaction.set(debtRef.collection('entries').doc(sessionId), DebtEntry(
-        sessionId: sessionId,
-        fromUserId: transfer.from,
-        toUserId: transfer.to,
-        amount: transfer.amount,
-        createdAt: DateTime.now(),
-      ).toMap());
+      transaction.set(
+        debtRef.collection('entries').doc(sessionId),
+        DebtEntry(
+          sessionId: sessionId,
+          fromUserId: transfer.from,
+          toUserId: transfer.to,
+          amount: transfer.amount,
+          createdAt: DateTime.now(),
+        ).toMap(),
+      );
       transaction.set(debtRef, {
         ...debt.toMap(),
-        'balance': ((existing?['balance'] as num?)?.toInt() ?? 0) + delta,
+        'balance': FieldValue.increment(delta),
         'lastEntryId': sessionId,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -215,9 +224,12 @@ class SessionRepository {
       'closeResult': {
         'totalAmount': result.totalAmount,
         'transfers': [
-          for (final t in result.transfers) {'from': t.from, 'to': t.to, 'amount': t.amount},
+          for (final t in result.transfers)
+            {'from': t.from, 'to': t.to, 'amount': t.amount},
         ],
-        'guestObligationIds': result.guestObligations.map((o) => o.obligationId).toList(),
+        'guestObligationIds': result.guestObligations
+            .map((o) => o.obligationId)
+            .toList(),
       },
     });
   }
@@ -235,11 +247,16 @@ class SessionRepository {
     if (session.creatorId != uid) {
       throw StateError('Creator must match the signed-in user.');
     }
-    if (expenses.isEmpty) throw ArgumentError('At least one expense is required.');
+    if (expenses.isEmpty) {
+      throw ArgumentError('At least one expense is required.');
+    }
     _ensureBatchWithinFirestoreLimit(1 + members.length + expenses.length);
     final byId = {for (final member in members) member.memberId: member};
-    if (byId.length != members.length || !byId.values.any((m) => m.userId == uid && !m.isGuest)) {
-      throw ArgumentError('Session members must be unique and include the creator.');
+    if (byId.length != members.length ||
+        !byId.values.any((m) => m.userId == uid && !m.isGuest)) {
+      throw ArgumentError(
+        'Session members must be unique and include the creator.',
+      );
     }
     for (final expense in expenses) {
       _validateExpense(expense, byId);
@@ -248,19 +265,149 @@ class SessionRepository {
       for (var i = 0; i < expenses.length; i++)
         _expenseFromInput(expenses[i], sequence: i),
     ];
-    final total = previews.fold<int>(0, (sum, expense) => sum + expense.amount);
+    final total = previews.fold<int>(
+      0,
+      (subtotal, expense) => subtotal + expense.amount,
+    );
     if (total <= 0) throw ArgumentError('Session total must be positive.');
+    final accounting = calculateSessionClose(
+      creatorId: uid,
+      members: members,
+      expenses: [
+        for (final e in previews)
+          CloseExpense(
+            expenseId: e.expenseId,
+            amount: e.amount,
+            payerId: e.payerId,
+            participantIds: e.participantIds,
+          ),
+      ],
+    );
     final sessionRef = _sessions.doc(session.sessionId);
     final batch = _db.batch();
     batch.set(sessionRef, {...session.toMap(), 'totalAmount': total});
     for (final member in members) {
-      batch.set(sessionRef.collection('members').doc(member.memberId), member.toMap());
+      final amounts = accounting.memberAmounts[member.memberId]!;
+      batch.set(sessionRef.collection('members').doc(member.memberId), {
+        ...member.toMap(),
+        'amountOwed': amounts.owed,
+        'amountPaid': amounts.paid,
+      });
     }
     for (final expense in previews) {
-      batch.set(sessionRef.collection('expenses').doc(expense.expenseId), expense.toMap());
+      batch.set(
+        sessionRef.collection('expenses').doc(expense.expenseId),
+        expense.toMap(),
+      );
     }
     await batch.commit();
     return session.sessionId;
+  }
+
+  /// Replace the open draft atomically. Reject stale editors and closed sessions.
+  Future<void> saveOpenSession({
+    required Session originalSession,
+    required List<SessionMember> originalMembers,
+    required List<Expense> originalExpenses,
+    required String title,
+    required List<SessionMember> members,
+    required List<ExpenseInput> expenses,
+  }) async {
+    final uid = _currentUid;
+    final items = [
+      for (var i = 0; i < expenses.length; i++)
+        _expenseFromInput(expenses[i], sequence: i),
+    ];
+    final accounting = validateSessionEdit(
+      title: title,
+      creatorId: uid,
+      members: members,
+      expenses: items,
+    );
+    final expected = sessionEditFingerprint(
+      originalSession,
+      originalMembers,
+      originalExpenses,
+    );
+    final sessionRef = _sessions.doc(originalSession.sessionId);
+    await _db.runTransaction((tx) async {
+      final snapshot = await tx.get(sessionRef);
+      _assertCreatorOpen(snapshot.data(), uid);
+      final oldMembers = await _readQueryInTransaction(
+        transaction: tx,
+        query: _membersQuery(originalSession.sessionId),
+      );
+      final oldExpenses = await _readQueryInTransaction(
+        transaction: tx,
+        query: _expensesQuery(originalSession.sessionId),
+      );
+      final actual = sessionEditFingerprint(
+        Session.fromMap(snapshot.id, snapshot.data()!),
+        _membersFromDocuments(oldMembers),
+        _expensesFromDocuments(oldExpenses),
+      );
+      if (actual != expected) {
+        throw StateError(
+          'Phiên đã được thay đổi ở nơi khác. Hãy quay lại và mở lại màn sửa.',
+        );
+      }
+      final memberIds = members.map((m) => m.memberId).toSet();
+      final expenseIds = items.map((e) => e.expenseId).toSet();
+      final removedMembers = oldMembers.where((d) => !memberIds.contains(d.id));
+      final removedExpenses = oldExpenses.where(
+        (d) => !expenseIds.contains(d.id),
+      );
+      _ensureBatchWithinFirestoreLimit(
+        1 +
+            members.length +
+            items.length +
+            removedMembers.length +
+            removedExpenses.length,
+      );
+      for (final doc in removedMembers) {
+        tx.delete(doc.reference);
+      }
+      for (final doc in removedExpenses) {
+        tx.delete(doc.reference);
+      }
+      for (final member in members) {
+        final amounts = accounting.memberAmounts[member.memberId]!;
+        tx.set(sessionRef.collection('members').doc(member.memberId), {
+          ...member.toMap(),
+          'displayName': member.displayName.trim(),
+          'amountOwed': amounts.owed,
+          'amountPaid': amounts.paid,
+          'status': member.isGuest
+              ? MemberStatus.pending.name
+              : member.userId == uid
+              ? MemberStatus.self.name
+              : MemberStatus.ledger.name,
+        });
+      }
+      for (final item in items) {
+        tx.set(sessionRef.collection('expenses').doc(item.expenseId), {
+          ...item.toMap(),
+          if (originalExpenses.any(
+            (e) => e.expenseId == item.expenseId && e.createdAt != null,
+          ))
+            'createdAt': Timestamp.fromDate(
+              originalExpenses
+                  .firstWhere((e) => e.expenseId == item.expenseId)
+                  .createdAt!,
+            ),
+        });
+      }
+      tx.update(sessionRef, {
+        'title': title.trim(),
+        'totalAmount': accounting.totalAmount,
+        'memberUserIds': members
+            .where((m) => !m.isGuest)
+            .map((m) => m.userId!)
+            .toList(),
+        'splitMode': SessionSplitMode.equal.name,
+        'lastExpenseMutationId': newUuid(),
+      });
+    });
   }
 
   /// Tạo phiên legacy không có expense-item, cùng members trong batch.
@@ -278,123 +425,155 @@ class SessionRepository {
     return session.sessionId;
   }
 
-  /// Adds an expense and updates the derived session total atomically.
-  Future<String> addExpense({required String sessionId, required ExpenseInput expense}) async {
+  /// All item mutations update member previews and the parent together.
+  Future<void> _mutateOpenExpenses(
+    String sessionId,
+    List<Expense> Function(List<Expense>) mutate,
+  ) async {
     final uid = _currentUid;
-    final sessionRef = _sessions.doc(sessionId);
-    await _db.runTransaction((transaction) async {
-      final sessionSnapshot = await transaction.get(sessionRef);
-      final data = sessionSnapshot.data();
-      _assertCreatorOpen(data, uid);
-      final memberDocuments = await _readQueryInTransaction(
-        transaction: transaction,
+    final parent = _sessions.doc(sessionId);
+    await _db.runTransaction((tx) async {
+      final snapshot = await tx.get(parent);
+      _assertCreatorOpen(snapshot.data(), uid);
+      final memberDocs = await _readQueryInTransaction(
+        transaction: tx,
         query: _membersQuery(sessionId),
       );
-      final members = _membersFromDocuments(memberDocuments);
-      _validateExpense(expense, {for (final member in members) member.memberId: member});
-      final existingExpenses = await _readQueryInTransaction(
-        transaction: transaction,
+      final expenseDocs = await _readQueryInTransaction(
+        transaction: tx,
         query: _expensesQuery(sessionId),
       );
-      if (existingExpenses.any((document) => document.id == expense.expenseId)) {
-        throw ArgumentError('Expense IDs must be unique.');
+      final members = _membersFromDocuments(memberDocs);
+      final current = sortExpensesBySequence(
+        _expensesFromDocuments(expenseDocs),
+      );
+      if (current.isEmpty) {
+        throw StateError(
+          'Phiên cũ cần mở Chỉnh sửa toàn bộ phiên để chuyển sang khoản chi trước.',
+        );
       }
-      final nextSequence = existingExpenses.length;
-      transaction.set(sessionRef.collection('expenses').doc(expense.expenseId),
-        _expenseFromInput(expense, sequence: nextSequence).toMap());
-      transaction.update(sessionRef, {
-        'totalAmount': ((data!['totalAmount'] as num?)?.toInt() ?? 0) + expense.amount,
-        'lastExpenseMutationId': expense.expenseId,
+      final next = mutate(current);
+      if (next.isEmpty) throw StateError('Không thể xóa khoản chi cuối cùng.');
+      final ids = <String>{};
+      final byMember = {for (final m in members) m.memberId: m};
+      for (final e in next) {
+        if (!ids.add(e.expenseId)) {
+          throw ArgumentError('Expense IDs must be unique.');
+        }
+        _validateExpense(
+          ExpenseInput(
+            expenseId: e.expenseId,
+            description: e.description,
+            amount: e.amount,
+            payerId: e.payerId,
+            participantIds: e.participantIds,
+          ),
+          byMember,
+        );
+      }
+      final accounting = calculateSessionClose(
+        creatorId: uid,
+        members: members,
+        expenses: [
+          for (final e in next)
+            CloseExpense(
+              expenseId: e.expenseId,
+              amount: e.amount,
+              payerId: e.payerId,
+              participantIds: e.participantIds,
+            ),
+        ],
+      );
+      final removed = expenseDocs.where((d) => !ids.contains(d.id));
+      _ensureBatchWithinFirestoreLimit(
+        1 + memberDocs.length + next.length + removed.length,
+      );
+      for (final doc in removed) {
+        tx.delete(doc.reference);
+      }
+      for (var i = 0; i < next.length; i++) {
+        final e = next[i];
+        tx.set(parent.collection('expenses').doc(e.expenseId), {
+          ...e.toMap(),
+          'sequence': i,
+          'shares': allocateExpenseShares(
+            amount: e.amount,
+            participantIds: e.participantIds,
+          ),
+        });
+      }
+      for (final doc in memberDocs) {
+        final amounts = accounting.memberAmounts[doc.id]!;
+        tx.update(doc.reference, {
+          'amountOwed': amounts.owed,
+          'amountPaid': amounts.paid,
+        });
+      }
+      tx.update(parent, {
+        'totalAmount': accounting.totalAmount,
+        'lastExpenseMutationId': newUuid(),
       });
     });
+  }
+
+  Future<String> addExpense({
+    required String sessionId,
+    required ExpenseInput expense,
+  }) async {
+    await addExpenses(sessionId: sessionId, expenses: [expense]);
     return expense.expenseId;
   }
 
-  /// Updates an existing item and its derived total in a transaction.
-  Future<void> updateExpense({required String sessionId, required String expenseId, required ExpenseInput expense}) async {
-    final uid = _currentUid;
-    final sessionRef = _sessions.doc(sessionId);
-    await _db.runTransaction((transaction) async {
-      final sessionSnapshot = await transaction.get(sessionRef);
-      final data = sessionSnapshot.data();
-      _assertCreatorOpen(data, uid);
-      final expenseRef = sessionRef.collection('expenses').doc(expenseId);
-      final oldSnapshot = await transaction.get(expenseRef);
-      if (!oldSnapshot.exists) throw StateError('Không tìm thấy khoản chi.');
-      final memberDocuments = await _readQueryInTransaction(
-        transaction: transaction,
-        query: _membersQuery(sessionId),
-      );
-      final members = _membersFromDocuments(memberDocuments);
-      _validateExpense(expense, {for (final member in members) member.memberId: member});
-      final oldAmount = (oldSnapshot.data()!['amount'] as num).toInt();
-      transaction.set(expenseRef, _expenseFromInput(expense, sequence: (oldSnapshot.data()!['sequence'] as num?)?.toInt() ?? 0).toMap());
-      transaction.update(sessionRef, {
-        'totalAmount': ((data!['totalAmount'] as num).toInt() - oldAmount) + expense.amount,
-        'lastExpenseMutationId': expenseId,
-      });
-    });
-  }
+  Future<void> updateExpense({
+    required String sessionId,
+    required String expenseId,
+    required ExpenseInput expense,
+  }) => _mutateOpenExpenses(sessionId, (current) {
+    final index = current.indexWhere((e) => e.expenseId == expenseId);
+    if (index < 0) throw StateError('Không tìm thấy khoản chi.');
+    if (expense.expenseId != expenseId) {
+      throw ArgumentError('Không được đổi mã khoản chi.');
+    }
+    final before = current[index];
+    final updated = _expenseFromInput(expense, sequence: before.sequence);
+    current[index] = Expense(
+      expenseId: updated.expenseId,
+      description: updated.description,
+      amount: updated.amount,
+      payerId: updated.payerId,
+      participantIds: updated.participantIds,
+      shares: updated.shares,
+      sequence: before.sequence,
+      createdAt: before.createdAt,
+    );
+    return current;
+  });
 
-  /// Deletes an expense unless it is the final item.
-  Future<void> deleteExpense({required String sessionId, required String expenseId}) async {
-    final uid = _currentUid;
-    final sessionRef = _sessions.doc(sessionId);
-    await _db.runTransaction((transaction) async {
-      final sessionSnapshot = await transaction.get(sessionRef);
-      final data = sessionSnapshot.data();
-      _assertCreatorOpen(data, uid);
-      final expenseRef = sessionRef.collection('expenses').doc(expenseId);
-      final oldSnapshot = await transaction.get(expenseRef);
-      if (!oldSnapshot.exists) throw StateError('Không tìm thấy khoản chi.');
-      final expenses = await _readQueryInTransaction(
-        transaction: transaction,
-        query: _expensesQuery(sessionId),
-      );
-      if (expenses.length <= 1) throw StateError('Không thể xóa khoản chi cuối cùng.');
-      final amount = (oldSnapshot.data()!['amount'] as num).toInt();
-      transaction.delete(expenseRef);
-      transaction.update(sessionRef, {
-        'totalAmount': (data!['totalAmount'] as num).toInt() - amount,
-        'lastExpenseMutationId': expenseId,
-      });
-    });
-  }
+  Future<void> deleteExpense({
+    required String sessionId,
+    required String expenseId,
+  }) => _mutateOpenExpenses(sessionId, (current) {
+    if (!current.any((e) => e.expenseId == expenseId)) {
+      throw StateError('Không tìm thấy khoản chi.');
+    }
+    return current.where((e) => e.expenseId != expenseId).toList();
+  });
 
-  /// Adds a set of expenses in one atomic Firestore transaction.
-  Future<void> addExpenses({required String sessionId, required List<ExpenseInput> expenses}) async {
-    if (expenses.isEmpty) throw ArgumentError('At least one expense is required.');
-    final uid = _currentUid;
-    final sessionRef = _sessions.doc(sessionId);
-    await _db.runTransaction((transaction) async {
-      final sessionSnapshot = await transaction.get(sessionRef);
-      final data = sessionSnapshot.data();
-      _assertCreatorOpen(data, uid);
-      final memberDocuments = await _readQueryInTransaction(
-        transaction: transaction,
-        query: _membersQuery(sessionId),
-      );
-      final members = _membersFromDocuments(memberDocuments);
-      final byId = {for (final member in members) member.memberId: member};
-      final existing = await _readQueryInTransaction(
-        transaction: transaction,
-        query: _expensesQuery(sessionId),
-      );
-      final existingIds = existing.map((doc) => doc.id).toSet();
-      for (var index = 0; index < expenses.length; index++) {
-        final expense = expenses[index];
-        if (existingIds.contains(expense.expenseId) || expenses.take(index).any((e) => e.expenseId == expense.expenseId)) {
-          throw ArgumentError('Expense IDs must be unique.');
-        }
-        _validateExpense(expense, byId);
-        transaction.set(sessionRef.collection('expenses').doc(expense.expenseId),
-          _expenseFromInput(expense, sequence: existing.length + index).toMap());
-      }
-      transaction.update(sessionRef, {
-        'totalAmount': (data!['totalAmount'] as num).toInt() + expenses.fold<int>(0, (sum, expense) => sum + expense.amount),
-        'lastExpenseMutationId': expenses.last.expenseId,
-      });
-    });
+  Future<void> addExpenses({
+    required String sessionId,
+    required List<ExpenseInput> expenses,
+  }) {
+    if (expenses.isEmpty) {
+      throw ArgumentError('At least one expense is required.');
+    }
+    return _mutateOpenExpenses(
+      sessionId,
+      (current) => [
+        ...current,
+        for (var i = 0; i < expenses.length; i++)
+          _expenseFromInput(expenses[i], sequence: current.length + i),
+      ],
+    );
   }
 
   static List<Expense> sortExpensesBySequence(List<Expense> expenses) {
@@ -478,8 +657,13 @@ class SessionRepository {
         creatorId: creatorId,
         expectedTotal: (sessionData!['totalAmount'] as num).toInt(),
       );
-      final writeCount = result.guestObligations.length + result.transfers.length * 2 +
-          sessionMembers.where((member) => !member.isGuest && member.userId != null).length + 1;
+      final writeCount =
+          result.guestObligations.length +
+          result.transfers.length * 2 +
+          sessionMembers
+              .where((member) => !member.isGuest && member.userId != null)
+              .length +
+          1;
       _ensureBatchWithinFirestoreLimit(writeCount);
       await _commitCloseResult(
         transaction: transaction,

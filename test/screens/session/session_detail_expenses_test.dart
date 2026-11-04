@@ -91,6 +91,94 @@ class _FakeGuestObligationRepository implements GuestObligationRepository {
 
 void main() {
   testWidgets(
+    'expanded expenses fit narrow screens with long names and many shares',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final members = List.generate(
+        12,
+        (i) => SessionMember(
+          memberId: 'member-$i',
+          userId: 'member-$i',
+          displayName: 'Thành viên có tên rất dài số $i',
+          isGuest: false,
+          amountOwed: 100000,
+          status: MemberStatus.ledger,
+        ),
+      );
+      final expense = Expense(
+        expenseId: 'long',
+        description: 'Ăn tối và đồ uống cùng cả nhóm sau chuyến đi',
+        amount: 1200000,
+        payerId: members.first.memberId,
+        participantIds: members.map((m) => m.memberId).toList(),
+        shares: {for (final member in members) member.memberId: 100000},
+        sequence: 1,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            userSessionsProvider('creator')
+                .overrideWith((ref) => Stream.value([_session])),
+            sessionMembersProvider('session-1')
+                .overrideWith((ref) => Stream.value(members)),
+            sessionExpensesProvider('session-1')
+                .overrideWith((ref) => Stream.value([expense])),
+            sessionGuestObligationsProvider('session-1')
+                .overrideWith((ref) => Stream.value([])),
+          ],
+          child: MaterialApp(
+            home: SessionDetailScreen(session: _session, currentUid: 'creator'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Các khoản chi'));
+      await tester.pumpAndSettle();
+      expect(find.text('Chia cho 12 người'), findsOneWidget);
+      expect(find.text(expense.description), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'member load errors can be retried without reopening the session',
+    (tester) async {
+      var attempts = 0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            userSessionsProvider('creator')
+                .overrideWith((ref) => Stream.value([_session])),
+            sessionMembersProvider('session-1').overrideWith((ref) {
+              attempts++;
+              return attempts == 1
+                  ? Stream<List<SessionMember>>.error(
+                      StateError('permission-denied'),
+                    )
+                  : Stream.value([_creator]);
+            }),
+            sessionExpensesProvider('session-1')
+                .overrideWith((ref) => Stream.value([_expense])),
+            sessionGuestObligationsProvider('session-1')
+                .overrideWith((ref) => Stream.value([])),
+          ],
+          child: MaterialApp(
+            home: SessionDetailScreen(session: _session, currentUid: 'creator'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Không tải được thành viên'), findsOneWidget);
+      await tester.tap(find.text('Thử lại'));
+      await tester.pumpAndSettle();
+      expect(attempts, 2);
+      expect(find.text('Thành viên'), findsOneWidget);
+      expect(find.textContaining('Không tải được thành viên'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'adding an expense defaults payer to creator and participants to all members',
     (tester) async {
       final repository = _FakeSessionRepository();

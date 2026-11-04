@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 import 'package:image_picker/image_picker.dart';
@@ -12,6 +11,7 @@ import '../../core/bill_ocr.dart';
 import '../../core/expense_allocation.dart';
 import '../../core/money.dart';
 import '../../models/app_user.dart';
+import '../../models/expense.dart';
 import '../../models/session.dart';
 import '../../models/session_member.dart';
 import '../../repositories/session_repository.dart';
@@ -19,7 +19,16 @@ import '../../repositories/user_repository.dart';
 
 class CreateSessionScreen extends ConsumerStatefulWidget {
   final String creatorUid;
-  const CreateSessionScreen({super.key, required this.creatorUid});
+  final Session? initialSession;
+  final List<SessionMember> initialMembers;
+  final List<Expense> initialExpenses;
+  const CreateSessionScreen({
+    super.key,
+    required this.creatorUid,
+    this.initialSession,
+    this.initialMembers = const [],
+    this.initialExpenses = const [],
+  });
 
   @override
   ConsumerState<CreateSessionScreen> createState() =>
@@ -30,6 +39,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   final _titleController = TextEditingController();
   static const SessionSplitMode _splitMode = SessionSplitMode.equal;
   bool _isSaving = false;
+  String? _creatorName;
   int? _activeExpenseIndex;
   final List<_MemberEntry> _members = [];
   final List<_ExpenseEntry> _expenses = [];
@@ -37,9 +47,66 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   @override
   void initState() {
     super.initState();
-    final firstExpense = _ExpenseEntry(payerId: widget.creatorUid);
-    firstExpense.participantIds.add(widget.creatorUid);
-    _expenses.add(firstExpense);
+    final initial = widget.initialSession;
+    if (initial != null) {
+      _creatorName = widget.initialMembers
+          .where((m) => m.memberId == widget.creatorUid)
+          .firstOrNull
+          ?.displayName;
+      _titleController.text = initial.title;
+      for (final member in widget.initialMembers.where(
+        (m) => m.memberId != widget.creatorUid,
+      )) {
+        _members.add(
+          _MemberEntry(
+            name: member.displayName,
+            userId: member.userId,
+            memberId: member.memberId,
+            isGuest: member.isGuest,
+          ),
+        );
+      }
+      for (final expense in widget.initialExpenses) {
+        final entry = _ExpenseEntry(
+          payerId: expense.payerId,
+          expenseId: expense.expenseId,
+        );
+        entry.descriptionController.text = expense.description;
+        entry.amountController.text = formatVndInput(expense.amount);
+        entry.participantIds.addAll(expense.participantIds);
+        _expenses.add(entry);
+      }
+      if (_expenses.isEmpty) {
+        // Preserve known advances while explicitly migrating legacy equal shares.
+        final payers = widget.initialMembers
+            .where((m) => !m.isGuest && m.userId != null && m.amountPaid > 0)
+            .toList();
+        final paidTotal = payers.fold<int>(
+          0,
+          (total, m) => total + m.amountPaid,
+        );
+        if (paidTotal == initial.totalAmount && payers.isNotEmpty) {
+          for (final payer in payers) {
+            final entry = _ExpenseEntry(payerId: payer.memberId);
+            entry.descriptionController.text =
+                '${initial.title} · ${payer.displayName}';
+            entry.amountController.text = formatVndInput(payer.amountPaid);
+            entry.participantIds.addAll(_memberIds);
+            _expenses.add(entry);
+          }
+        } else {
+          final entry = _ExpenseEntry(payerId: widget.creatorUid);
+          entry.descriptionController.text = initial.title;
+          entry.amountController.text = formatVndInput(initial.totalAmount);
+          entry.participantIds.addAll(_memberIds);
+          _expenses.add(entry);
+        }
+      }
+    } else {
+      final firstExpense = _ExpenseEntry(payerId: widget.creatorUid);
+      firstExpense.participantIds.add(widget.creatorUid);
+      _expenses.add(firstExpense);
+    }
   }
 
   @override
@@ -59,8 +126,11 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   Set<String> get _guestIds =>
       _members.where((m) => m.isGuest).map((m) => m.memberId).toSet();
 
-  List<_ExpenseEntry> get _validExpenses =>
-      _expenses.where((expense) => expense.amount > 0).toList();
+  List<_ExpenseEntry> get _validExpenses => _expenses
+      .where(
+        (expense) => expense.amount > 0 && expense.participantIds.isNotEmpty,
+      )
+      .toList();
 
   SessionExpensePreview get _preview => previewSessionExpenses([
     for (final expense in _validExpenses)
@@ -72,15 +142,16 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   ], guestMemberIds: _guestIds);
 
   Future<void> _pickAndOcr(int index) async {
+    final target = _expenses[index];
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
       imageQuality: 90,
     );
-    if (picked == null || !mounted) return;
+    if (picked == null || !mounted || !_expenses.contains(target)) return;
     setState(() => _activeExpenseIndex = index);
     try {
       final scan = await scanBill(File(picked.path));
-      if (!mounted) return;
+      if (!mounted || !_expenses.contains(target)) return;
       if (scan.total == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Không nhận ra số tiền nào từ ảnh.')),
@@ -88,7 +159,9 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         return;
       }
       setState(
-        () => _expenses[index].amountController.text = scan.total.toString(),
+        () => _expenses[index].amountController.text = formatVndInput(
+          scan.total!,
+        ),
       );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -135,38 +208,97 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
     );
   }
 
+  Future<void> _editMember(_MemberEntry member) async {
+    var editedName = member.name;
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tên trong phiên'),
+        content: TextFormField(
+          initialValue: member.name,
+          autofocus: true,
+          onChanged: (value) => editedName = value,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Huỷ'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (editedName.trim().isNotEmpty) {
+                Navigator.pop(ctx, editedName.trim());
+              }
+            },
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+    if (mounted && name != null) {
+      setState(() {
+        if (member.memberId == widget.creatorUid) {
+          _creatorName = name;
+        } else {
+          member.name = name;
+        }
+      });
+    }
+  }
+
+  Future<void> _removeMember(_MemberEntry member) async {
+    if (_expenses.any(
+      (e) =>
+          e.participantIds.length == 1 &&
+          e.participantIds.contains(member.memberId),
+    )) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Hãy chọn người tham gia thay thế cho khoản chi chỉ có thành viên này trước khi xoá.',
+          ),
+        ),
+      );
+      return;
+    }
+    final wasPayer = _expenses.any((e) => e.payerId == member.memberId);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Xoá ${member.name} khỏi phiên?'),
+        content: Text(
+          'Phần tiền các khoản có người này sẽ được chia lại cho những người còn lại.${wasPayer ? ' Các khoản người này trả sẽ chuyển người trả sang bạn; bạn có thể chọn lại trước khi lưu.' : ''}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Huỷ'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Xoá'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() {
+      _members.remove(member);
+      for (final expense in _expenses) {
+        expense.participantIds.remove(member.memberId);
+        if (expense.payerId == member.memberId) {
+          expense.payerId = widget.creatorUid;
+        }
+      }
+    });
+  }
+
   void _addExpense() => setState(() {
     final expense = _ExpenseEntry(payerId: widget.creatorUid);
     expense.participantIds.addAll(_memberIds);
     _expenses.add(expense);
     _activeExpenseIndex = _expenses.length - 1;
   });
-
-  Future<void> _editExpenseDescription(int index) async {
-    setState(() => _activeExpenseIndex = index);
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          20,
-          16,
-          MediaQuery.of(context).viewInsets.bottom + 20,
-        ),
-        child: FTextField(
-          control: FTextFieldControl.managed(
-            controller: _expenses[index].descriptionController,
-          ),
-          label: const Text('Mô tả khoản chi'),
-          hint: 'Ví dụ: Ăn tối, vé xem phim',
-          textInputAction: TextInputAction.done,
-          onSubmit: (_) => Navigator.pop(context),
-        ),
-      ),
-    );
-    if (mounted) setState(() {});
-  }
 
   void _removeExpense(int index) {
     if (_expenses.length <= 1) return;
@@ -190,51 +322,58 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  'Ai tham gia khoản này?',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 12),
-                FSelectTileGroup<String>(
-                  control: FMultiValueControl.lifted(
-                    value: Set.unmodifiable(selected),
-                    onChange: (value) => setSheetState(() {
-                      selected
-                        ..clear()
-                        ..addAll(value);
-                    }),
-                  ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    FSelectTile<String>(
-                      title: const Text('Bạn (người tạo)'),
-                      value: widget.creatorUid,
+                    Text(
+                      'Ai tham gia khoản này?',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    for (final member in _members)
-                      FSelectTile<String>(
-                        title: Text(member.name),
-                        value: member.memberId,
+                    const SizedBox(height: 12),
+                    FSelectTileGroup<String>(
+                      control: FMultiValueControl.lifted(
+                        value: Set.unmodifiable(selected),
+                        onChange: (value) => setSheetState(() {
+                          selected
+                            ..clear()
+                            ..addAll(value);
+                        }),
                       ),
+                      children: [
+                        FSelectTile<String>(
+                          title: const Text('Bạn (người tạo)'),
+                          value: widget.creatorUid,
+                        ),
+                        for (final member in _members)
+                          FSelectTile<String>(
+                            title: Text(member.name),
+                            value: member.memberId,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    FButton(
+                      onPress: () {
+                        setState(() {
+                          expense.participantIds
+                            ..clear()
+                            ..addAll(_memberIds.where(selected.contains));
+                        });
+                        Navigator.pop(context);
+                      },
+                      child: const Text('Lưu người tham gia'),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                FButton(
-                  onPress: () {
-                    setState(() {
-                      expense.participantIds
-                        ..clear()
-                        ..addAll(_memberIds.where(selected.contains));
-                    });
-                    Navigator.pop(context);
-                  },
-                  child: const Text('Lưu người tham gia'),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -248,34 +387,41 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
     await showModalBottomSheet<void>(
       context: context,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(title: Text('Người trả khoản ${index + 1}')),
-            for (final memberId in _memberIds)
-              ListTile(
-                leading: Icon(
-                  expense.payerId == memberId
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(title: Text('Người trả khoản ${index + 1}')),
+              for (final memberId in _memberIds.where(
+                (id) => !_guestIds.contains(id),
+              ))
+                ListTile(
+                  leading: Icon(
+                    expense.payerId == memberId
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                  ),
+                  title: Text(
+                    memberId == widget.creatorUid
+                        ? 'Bạn (người tạo)'
+                        : _members
+                              .firstWhere((m) => m.memberId == memberId)
+                              .name,
+                  ),
+                  onTap: () {
+                    setState(() => expense.payerId = memberId);
+                    Navigator.pop(context);
+                  },
                 ),
-                title: Text(
-                  memberId == widget.creatorUid
-                      ? 'Bạn (người tạo)'
-                      : _members.firstWhere((m) => m.memberId == memberId).name,
-                ),
-                onTap: () {
-                  setState(() => expense.payerId = memberId);
-                  Navigator.pop(context);
-                },
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
   Future<void> _submit() async {
+    if (_isSaving) return;
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -300,7 +446,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
     }
     setState(() => _isSaving = true);
     try {
-      final sessionId = newUuid();
+      final sessionId = widget.initialSession?.sessionId ?? newUuid();
       final now = DateTime.now();
       final total = _preview.totalAmount;
       final preview = _preview;
@@ -311,10 +457,12 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         SessionMember(
           memberId: widget.creatorUid,
           userId: widget.creatorUid,
-          displayName: me?.name ?? '',
+          displayName: (_creatorName?.trim().isNotEmpty ?? false)
+              ? _creatorName!.trim()
+              : me?.name ?? 'Bạn',
           isGuest: false,
           amountOwed: preview.owedByMember[widget.creatorUid] ?? 0,
-          amountPaid: 0,
+          amountPaid: preview.paidByMember[widget.creatorUid] ?? 0,
           status: MemberStatus.self,
         ),
         for (var i = 0; i < _members.length; i++)
@@ -324,6 +472,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
             displayName: _members[i].name,
             isGuest: _members[i].isGuest,
             amountOwed: preview.owedByMember[_members[i].memberId] ?? 0,
+            amountPaid: preview.paidByMember[_members[i].memberId] ?? 0,
             status: _members[i].isGuest
                 ? MemberStatus.pending
                 : MemberStatus.ledger,
@@ -346,7 +495,7 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
       final inputs = [
         for (var i = 0; i < _expenses.length; i++)
           ExpenseInput(
-            expenseId: 'expense-${(i + 1).toString().padLeft(4, '0')}',
+            expenseId: _expenses[i].expenseId,
             description: _expenses[i].descriptionController.text.trim().isEmpty
                 ? 'Khoản chi ${i + 1}'
                 : _expenses[i].descriptionController.text.trim(),
@@ -357,17 +506,34 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
             ),
           ),
       ];
-      await repository.createSessionWithExpenses(
-        session: session,
-        members: members,
-        expenses: inputs,
-      );
+      if (widget.initialSession case final original?) {
+        await repository.saveOpenSession(
+          originalSession: original,
+          originalMembers: widget.initialMembers,
+          originalExpenses: widget.initialExpenses,
+          title: title,
+          members: members,
+          expenses: inputs,
+        );
+      } else {
+        await repository.createSessionWithExpenses(
+          session: session,
+          members: members,
+          expenses: inputs,
+        );
+      }
       if (mounted) Navigator.pop(context, true);
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tạo phiên thất bại. Kiểm tra kết nối rồi thử lại.'),
+          SnackBar(
+            content: Text(
+              e is StateError
+                  ? e.message
+                  : e is ArgumentError
+                  ? e.message.toString()
+                  : 'Không lưu được phiên. Kiểm tra kết nối rồi thử lại.',
+            ),
           ),
         );
       }
@@ -383,160 +549,215 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
     return FTheme(
       data: theme,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Tạo phiên mới')),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            FCard(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    FTextField(
-                      control: FTextFieldControl.managed(
-                        controller: _titleController,
-                      ),
-                      label: const Text('Tên phiên'),
-                      hint: 'Ví dụ: Đi Đà Lạt',
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Khoản chi',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    for (var i = 0; i < _expenses.length; i++) ...[
-                      _ExpenseEditorCard(
-                        key: ValueKey(_expenses[i].key),
-                        index: i,
-                        expense: _expenses[i],
-                        memberIds: _memberIds,
-                        members: _members,
-                        creatorName: 'Bạn',
-                        isActive: _activeExpenseIndex == i,
-                        onActive: () => setState(() => _activeExpenseIndex = i),
-                        onAmountChanged: (_) =>
-                            setState(() => _activeExpenseIndex = i),
-                        onDescription: () => _editExpenseDescription(i),
-                        onRemove: _expenses.length > 1
-                            ? () => _removeExpense(i)
-                            : null,
-                        onChoosePayer: () => _choosePayer(i),
-                        onChooseParticipants: () => _editParticipants(i),
-                        onOcr: () => _pickAndOcr(i),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: FButton(
-                        variant: .outline,
-                        mainAxisSize: .min,
-                        onPress: _addExpense,
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add),
-                            SizedBox(width: 6),
-                            Text('Thêm khoản chi'),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FCard(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Tổng phiên',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      formatVnd(total),
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const Divider(),
-                    for (final memberId in _memberIds)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                memberId == widget.creatorUid
-                                    ? 'Bạn'
-                                    : _members
-                                          .firstWhere(
-                                            (m) => m.memberId == memberId,
-                                          )
-                                          .name,
-                              ),
-                            ),
-                            Text(
-                              formatVnd(_preview.owedByMember[memberId] ?? 0),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Thành viên (${_members.length + 1})',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                TextButton.icon(
-                  icon: const Icon(Icons.person_add_outlined),
-                  label: const Text('Thêm'),
-                  onPressed: _showAddMemberDialog,
-                ),
-              ],
-            ),
-            ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.person)),
-              title: const Text('Bạn (người tạo)'),
-              trailing: Text(
-                formatVnd(_preview.owedByMember[widget.creatorUid] ?? 0),
-              ),
-            ),
-            for (final member in _members)
-              ListTile(
-                leading: CircleAvatar(
+        appBar: AppBar(
+          title: Text(
+            widget.initialSession == null ? 'Tạo phiên mới' : 'Chỉnh sửa phiên',
+          ),
+        ),
+        body: AbsorbPointer(
+          absorbing: _isSaving,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (widget.initialSession != null &&
+                  widget.initialExpenses.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 16),
                   child: Text(
-                    member.name.isEmpty ? '?' : member.name[0].toUpperCase(),
+                    'Phiên cũ sẽ chuyển sang chia đều theo từng khoản chi khi lưu. Kiểm tra lại người trả, số tiền đã ứng và phần chia bên dưới.',
                   ),
                 ),
-                title: Text(member.name),
-                subtitle: member.isGuest ? const Text('Khách') : null,
-                trailing: Text(
-                  formatVnd(_preview.owedByMember[member.memberId] ?? 0),
+              FCard(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      FTextField(
+                        control: FTextFieldControl.managed(
+                          controller: _titleController,
+                        ),
+                        label: const Text('Tên phiên'),
+                        hint: 'Ví dụ: Đi Đà Lạt',
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Khoản chi',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      for (var i = 0; i < _expenses.length; i++) ...[
+                        _ExpenseEditorCard(
+                          key: ValueKey(_expenses[i].key),
+                          index: i,
+                          expense: _expenses[i],
+                          memberIds: _memberIds,
+                          members: _members,
+                          creatorName: 'Bạn',
+                          isActive: _activeExpenseIndex == i,
+                          onActive: () =>
+                              setState(() => _activeExpenseIndex = i),
+                          onAmountChanged: (_) =>
+                              setState(() => _activeExpenseIndex = i),
+                          onRemove: _expenses.length > 1
+                              ? () => _removeExpense(i)
+                              : null,
+                          onChoosePayer: () => _choosePayer(i),
+                          onChooseParticipants: () => _editParticipants(i),
+                          onOcr: () => _pickAndOcr(i),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FButton(
+                          variant: .outline,
+                          mainAxisSize: .min,
+                          onPress: _addExpense,
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.add),
+                              SizedBox(width: 6),
+                              Text('Thêm khoản chi'),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            const SizedBox(height: 20),
-            FButton(
-              onPress: _isSaving ? null : _submit,
-              child: _isSaving
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Tạo phiên'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              FCard(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Tổng phiên',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        formatVnd(total),
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const Divider(),
+                      for (final memberId in _memberIds)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  memberId == widget.creatorUid
+                                      ? 'Bạn'
+                                      : _members
+                                            .firstWhere(
+                                              (m) => m.memberId == memberId,
+                                            )
+                                            .name,
+                                ),
+                              ),
+                              Text(
+                                formatVnd(_preview.owedByMember[memberId] ?? 0),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Thành viên (${_members.length + 1})',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.person_add_outlined),
+                    label: const Text('Thêm'),
+                    onPressed: _showAddMemberDialog,
+                  ),
+                ],
+              ),
+              ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person)),
+                title: const Text('Bạn (người tạo)'),
+                onTap: () => _editMember(
+                  _MemberEntry(
+                    name: _creatorName ?? 'Bạn',
+                    userId: widget.creatorUid,
+                    memberId: widget.creatorUid,
+                    isGuest: false,
+                  ),
+                ),
+                subtitle: Text(
+                  '${_creatorName ?? 'Bạn'} · Chạm để đổi tên trong phiên',
+                ),
+                trailing: Text(
+                  formatVnd(_preview.owedByMember[widget.creatorUid] ?? 0),
+                ),
+              ),
+              for (final member in _members)
+                ListTile(
+                  leading: CircleAvatar(
+                    child: Text(
+                      member.name.isEmpty ? '?' : member.name[0].toUpperCase(),
+                    ),
+                  ),
+                  title: Text(member.name),
+                  subtitle: member.isGuest ? const Text('Khách') : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        formatVnd(_preview.owedByMember[member.memberId] ?? 0),
+                      ),
+                      PopupMenuButton<String>(
+                        tooltip: 'Sửa thành viên',
+                        onSelected: (value) {
+                          if (value == 'name') {
+                            _editMember(member);
+                          } else {
+                            _removeMember(member);
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'name',
+                            child: Text('Đổi tên trong phiên'),
+                          ),
+                          PopupMenuItem(
+                            value: 'remove',
+                            child: Text('Xoá khỏi phiên'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 20),
+              FButton(
+                onPress: _isSaving ? null : _submit,
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(
+                        widget.initialSession == null
+                            ? 'Tạo phiên'
+                            : 'Lưu thay đổi',
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -552,7 +773,6 @@ class _ExpenseEditorCard extends StatelessWidget {
   final bool isActive;
   final VoidCallback onActive;
   final ValueChanged<String> onAmountChanged;
-  final VoidCallback onDescription;
   final VoidCallback? onRemove;
   final VoidCallback onChoosePayer;
   final VoidCallback onChooseParticipants;
@@ -568,7 +788,6 @@ class _ExpenseEditorCard extends StatelessWidget {
     required this.isActive,
     required this.onActive,
     required this.onAmountChanged,
-    required this.onDescription,
     required this.onRemove,
     required this.onChoosePayer,
     required this.onChooseParticipants,
@@ -607,16 +826,13 @@ class _ExpenseEditorCard extends StatelessWidget {
                   ),
               ],
             ),
-            InkWell(
-              onTap: onDescription,
-              child: InputDecorator(
-                decoration: const InputDecoration(labelText: 'Mô tả'),
-                child: Text(
-                  expense.descriptionController.text.isEmpty
-                      ? 'Chạm để thêm mô tả'
-                      : expense.descriptionController.text,
-                ),
+            FTextField(
+              control: FTextFieldControl.managed(
+                controller: expense.descriptionController,
               ),
+              label: const Text('Mô tả'),
+              hint: 'Ví dụ: Ăn tối, vé xem phim',
+              onTap: onActive,
             ),
             const SizedBox(height: 8),
             Row(
@@ -629,7 +845,7 @@ class _ExpenseEditorCard extends StatelessWidget {
                     ),
                     label: const Text('Số tiền (VND)'),
                     keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    inputFormatters: [VndInputFormatter()],
                     onTap: onActive,
                   ),
                 ),
@@ -674,14 +890,16 @@ class _ExpenseEditorCard extends StatelessWidget {
 
 class _ExpenseEntry {
   final String key = UniqueKey().toString();
+  final String expenseId;
   final TextEditingController descriptionController = TextEditingController();
   final TextEditingController amountController = TextEditingController();
   final List<String> participantIds = [];
   String payerId;
 
-  _ExpenseEntry({required this.payerId});
+  _ExpenseEntry({required this.payerId, String? expenseId})
+    : expenseId = expenseId ?? newUuid();
 
-  int get amount => int.tryParse(amountController.text.trim()) ?? 0;
+  int get amount => parseVndInput(amountController.text) ?? 0;
 
   void dispose() {
     descriptionController.dispose();
@@ -690,7 +908,7 @@ class _ExpenseEntry {
 }
 
 class _MemberEntry {
-  final String name;
+  String name;
   final String? userId;
   final String memberId;
   final bool isGuest;

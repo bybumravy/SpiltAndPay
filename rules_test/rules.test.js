@@ -4,7 +4,7 @@ import {
   initializeTestEnvironment, assertSucceeds, assertFails,
 } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch,
+  collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch,
   increment, deleteField, serverTimestamp,
 } from 'firebase/firestore';
 
@@ -406,4 +406,81 @@ test('thành viên đọc được phiên, người ngoài thì không', async (
   await seedOpenSession('S6');
   await assertSucceeds(getDoc(doc(db('B'), 'sessions', 'S6')));
   await assertFails(getDoc(doc(db('Z'), 'sessions', 'S6')));
+});
+
+test('members can list session members; outsiders cannot', async () => {
+  await seedOpenSession();
+  await assertSucceeds(getDocs(collection(db('A'), 'sessions', 'S1', 'members')));
+  await assertSucceeds(getDocs(collection(db('B'), 'sessions', 'S1', 'members')));
+  await assertFails(getDocs(collection(db('D'), 'sessions', 'S1', 'members')));
+});
+
+function fullDraftEdit(d, marker = 'draft-edit') {
+  const b = writeBatch(d);
+  b.update(doc(d, 'sessions', 'S1'), {
+    title: 'Edited trip', totalAmount: 100001, memberUserIds: ['A', 'D'],
+    splitMode: 'equal', lastExpenseMutationId: marker,
+  });
+  b.delete(doc(d, 'sessions', 'S1', 'members', 'B'));
+  for (const [id, guest, owed, paid] of [['A',false,33334,0],['D',false,33334,100001],['G',true,33333,0]]) {
+    b.set(doc(d, 'sessions', 'S1', 'members', id), {
+      userId: guest ? null : id, displayName: id + ' edited', isGuest: guest,
+      amountOwed: owed, amountPaid: paid, status: guest ? 'pending' : id === 'A' ? 'self' : 'ledger',
+    });
+  }
+  b.set(doc(d, 'sessions', 'S1', 'expenses', 'edited'), {
+    description: 'Changed payer and participants', amount:100001, payerId:'D',
+    participantIds:['A','D','G'], shares:{A:33334,D:33334,G:33333}, sequence:0,
+  });
+  return b;
+}
+
+test('creator can atomically edit title membership payer shares and accounting of an open draft', async () => {
+  await seedOpenSession();
+  await assertSucceeds(fullDraftEdit(db('A')).commit());
+  const parent = await getDoc(doc(db('A'), 'sessions', 'S1'));
+  const payer = await getDoc(doc(db('D'), 'sessions', 'S1', 'members', 'D'));
+  if (parent.data().totalAmount !== 100001 || payer.data().amountPaid !== 100001) throw new Error('Accounting not updated');
+  await assertSucceeds(getDocs(collection(db('D'), 'sessions', 'S1', 'members')));
+  await assertFails(getDoc(doc(db('B'), 'sessions', 'S1')));
+  await assertFails(getDocs(collection(db('B'), 'sessions', 'S1', 'members')));
+});
+
+test('full edits do not grant non-creators write access or reopen closed sessions', async () => {
+  await seedOpenSession();
+  await assertFails(fullDraftEdit(db('B')).commit());
+  await env.withSecurityRulesDisabled(async ctx => updateDoc(doc(ctx.firestore(), 'sessions', 'S1'), {status:'closed'}));
+  await assertFails(fullDraftEdit(db('A')).commit());
+});
+
+test('draft member accounting changes require a parent edit and cannot change user identity', async () => {
+  await seedOpenSession();
+  await assertFails(updateDoc(doc(db('A'), 'sessions', 'S1', 'members', 'B'), {amountPaid:100}));
+  const actor = db('A');
+  const b = fullDraftEdit(actor);
+  b.update(doc(actor, 'sessions', 'S1', 'members', 'A'), {userId:'D'});
+  await assertFails(b.commit());
+});
+
+test('edited open draft still closes once and accepts a matching full payment', async () => {
+  await seedOpenSession();
+  await assertSucceeds(fullDraftEdit(db('A')).commit());
+  const d = db('A'); const b = writeBatch(d);
+  b.update(doc(d,'sessions','S1'), {status:'closed',closedAt:serverTimestamp(),closeResult:{totalAmount:100001}, totalAmount:100001});
+  b.set(doc(d,'debts','A_D'), {userA:'A',userB:'D',participants:['A','D'],balance:33334,lastEntryId:'S1',updatedAt:serverTimestamp()});
+  b.set(doc(d,'debts','A_D','entries','S1'), {sessionId:'S1',fromUserId:'A',toUserId:'D',amount:33334,createdAt:serverTimestamp()});
+  b.set(doc(d,'sessions','S1','guestObligations','edited_G'), {sessionId:'S1',expenseId:'edited',payerId:'D',guestMemberId:'G',amount:33333,status:'pending'});
+  await assertSucceeds(b.commit());
+  await assertFails(fullDraftEdit(d, 'closed-edit').commit());
+  const pay = writeBatch(d);
+  pay.set(doc(d,'debts','A_D','payments','P1'), {fromUserId:'A',toUserId:'D',amount:33334,status:'pending',createdAt:serverTimestamp()});
+  pay.update(doc(d,'debts','A_D'), {pendingPaymentId:'P1'});
+  await assertSucceeds(pay.commit());
+  const creditor = db('D');
+  const confirm = writeBatch(creditor);
+  confirm.update(doc(creditor,'debts','A_D','payments','P1'), {status:'confirmed',confirmedAt:serverTimestamp()});
+  confirm.update(doc(creditor,'debts','A_D'), {balance:0,pendingPaymentId:deleteField(),updatedAt:serverTimestamp()});
+  await assertSucceeds(confirm.commit());
+  await assertSucceeds(updateDoc(doc(db('D'),'sessions','S1','guestObligations','edited_G'), {status:'collected',collectedBy:'D',collectedAt:serverTimestamp()}));
+  await assertFails(updateDoc(doc(db('A'),'sessions','S1','guestObligations','edited_G'), {status:'collected',collectedBy:'A',collectedAt:serverTimestamp()}));
 });
