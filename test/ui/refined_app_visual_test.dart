@@ -345,6 +345,8 @@ void main() {
       textScale: 1.3,
     );
     expect(find.byType(ChoiceChip), findsNothing);
+    await tester.tap(find.text('Phiên').last);
+    await tester.pumpAndSettle();
     await tester.ensureVisible(find.widgetWithText(Tab, 'Đã đóng'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(Tab, 'Đã đóng'));

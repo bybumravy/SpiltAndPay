@@ -13,7 +13,6 @@ import '../../repositories/debt_repository.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
 import '../../ui/app_theme.dart';
-import '../../ui/content_rows.dart';
 import 'widgets/bank_chooser_sheet.dart';
 
 class DebtDetailScreen extends ConsumerWidget {
