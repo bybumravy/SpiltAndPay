@@ -62,7 +62,8 @@ class DebtDetailScreen extends ConsumerWidget {
       body: otherUserAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Lỗi: $e')),
-        data: (otherUser) => Column(
+        data: (otherUser) => ListView(
+          padding: const EdgeInsets.only(bottom: 32),
           children: [
             // Tổng quan
             Padding(
@@ -98,6 +99,7 @@ class DebtDetailScreen extends ConsumerWidget {
                   ? const Text(
                       'Không còn khoản nợ nào.',
                       style: TextStyle(color: Colors.green),
+                      textAlign: TextAlign.center,
                     )
                   : iAmDebtor
                   ? _DebtorActions(
@@ -122,7 +124,7 @@ class DebtDetailScreen extends ConsumerWidget {
 
             // Lịch sử payments
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -131,35 +133,44 @@ class DebtDetailScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            Expanded(
-              child: paymentsAsync.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => const Center(
+            paymentsAsync.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(
                   child: Text(
                     'Chưa có giao dịch nào',
                     style: TextStyle(color: Colors.grey),
                   ),
                 ),
-                data: (payments) {
-                  if (payments.isEmpty) {
-                    return const Center(
+              ),
+              data: (payments) {
+                if (payments.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(
                       child: Text(
                         'Chưa có giao dịch nào',
                         style: TextStyle(color: Colors.grey),
                       ),
-                    );
-                  }
-                  return ListView.builder(
-                    itemCount: payments.length,
-                    itemBuilder: (_, i) => _PaymentTile(
-                      payment: payments[i],
-                      currentUid: currentUid,
-                      debtId: debtId,
-                      debtorIsUserA: debt.userA == payments[i].fromUserId,
                     ),
                   );
-                },
-              ),
+                }
+                return Column(
+                  children: [
+                    for (final p in payments)
+                      _PaymentTile(
+                        payment: p,
+                        currentUid: currentUid,
+                        debtId: debtId,
+                        debtorIsUserA: debt.userA == p.fromUserId,
+                      ),
+                  ],
+                );
+              },
             ),
           ],
         ),
@@ -352,7 +363,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                 child: QrImageView(
                   data: dynamicQr,
                   version: QrVersions.auto,
-                  size: 220,
+                  size: 200,
                   backgroundColor: Colors.white,
                 ),
               ),
