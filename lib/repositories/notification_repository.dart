@@ -1,6 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/debt.dart';
 import 'debt_repository.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -16,7 +18,7 @@ class NotificationRepository {
   final FirebaseAuth _auth;
 
   NotificationRepository(this._db, [FirebaseAuth? auth])
-      : _auth = auth ?? FirebaseAuth.instance;
+    : _auth = auth ?? FirebaseAuth.instance;
 
   String get _currentUid {
     final uid = _auth.currentUser?.uid;
@@ -31,10 +33,9 @@ class NotificationRepository {
   Stream<List<AppNotification>> watchNotifications(String uid) async* {
     yield <AppNotification>[];
     try {
-      await for (final snapshot in _notifCol(uid)
-          .orderBy('createdAt', descending: true)
-          .limit(50)
-          .snapshots()) {
+      await for (final snapshot in _notifCol(
+        uid,
+      ).orderBy('createdAt', descending: true).limit(50).snapshots()) {
         yield snapshot.docs
             .map((doc) => AppNotification.fromMap(doc.id, doc.data()))
             .toList();
@@ -48,9 +49,9 @@ class NotificationRepository {
   Stream<int> watchUnreadCount(String uid) async* {
     yield 0;
     try {
-      await for (final snapshot in _notifCol(uid)
-          .where('isRead', isEqualTo: false)
-          .snapshots()) {
+      await for (final snapshot in _notifCol(
+        uid,
+      ).where('isRead', isEqualTo: false).snapshots()) {
         yield snapshot.docs.length;
       }
     } catch (error) {
@@ -70,7 +71,9 @@ class NotificationRepository {
   /// Đánh dấu tất cả thông báo đã đọc
   Future<void> markAllAsRead(String uid) async {
     try {
-      final unread = await _notifCol(uid).where('isRead', isEqualTo: false).get();
+      final unread = await _notifCol(uid)
+          .where('isRead', isEqualTo: false)
+          .get();
       if (unread.docs.isEmpty) return;
 
       final batch = _db.batch();
@@ -101,59 +104,68 @@ class NotificationRepository {
 
     switch (style) {
       case 'funny':
-        body = 'Hôm nay trời nhẹ lên cao, mình buồn không hiểu vì sao... bạn chưa chuyển $formattedAmt? 🥺';
+        body =
+            'Hôm nay trời nhẹ lên cao, mình buồn không hiểu vì sao... bạn chưa chuyển $formattedAmt? 🥺';
         break;
       case 'gentle':
-        body = 'Ghé SplitPay thanh toán nốt $formattedAmt cho $creditorName để sổ nợ về 0 nào bạn ơi! ☕';
+        body =
+            'Ghé SplitPay thanh toán nốt $formattedAmt cho $creditorName để sổ nợ về 0 nào bạn ơi! ☕';
         break;
       case 'polite':
       default:
-        body = '$creditorName gửi lời nhắc thanh toán khoản nợ $formattedAmt. Bạn tranh thủ chuyển nhé! 🔔';
+        body =
+            '$creditorName gửi lời nhắc thanh toán khoản nợ $formattedAmt. Bạn tranh thủ chuyển nhé! 🔔';
         break;
     }
 
-    await _db.runTransaction((tx) async {
-      final debtSnap = await tx.get(debtRef);
-      final debtData = debtSnap.data();
-      if (debtData == null) throw StateError('Không tìm thấy khoản nợ.');
+    final debtSnap = await debtRef.get();
+    final debtData = debtSnap.data();
+    if (debtData == null) throw StateError('Không tìm thấy khoản nợ.');
 
-      // Kiểm tra người gọi phải là chủ nợ
-      final balance = (debtData['balance'] as num).toInt();
-      final isUserA = currentUserId == debtData['userA'];
-      final iAmCreditor = isUserA ? balance < 0 : balance > 0;
-      if (!iAmCreditor) {
-        throw StateError('Chỉ chủ nợ mới có quyền gửi lời nhắc.');
+    // Kiểm tra người gọi phải là chủ nợ
+    final balance = (debtData['balance'] as num).toInt();
+    final isUserA = currentUserId == debtData['userA'];
+    final iAmCreditor = isUserA ? balance < 0 : balance > 0;
+    if (!iAmCreditor) {
+      throw StateError('Chỉ chủ nợ mới có quyền gửi lời nhắc.');
+    }
+
+    // Kiểm tra Rate Limit 24h
+    final lastReminder = debtData['lastReminderAt'];
+    if (lastReminder is Timestamp) {
+      final lastDate = lastReminder.toDate();
+      final diff = DateTime.now().difference(lastDate);
+      if (diff.inHours < 24) {
+        final hoursLeft = 24 - diff.inHours;
+        throw StateError(
+          'Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $hoursLeft giờ.',
+        );
       }
+    }
 
-      // Kiểm tra Rate Limit 24h
-      final lastReminder = debtData['lastReminderAt'];
-      if (lastReminder is Timestamp) {
-        final lastDate = lastReminder.toDate();
-        final diff = DateTime.now().difference(lastDate);
-        if (diff.inHours < 24) {
-          final hoursLeft = 24 - diff.inHours;
-          throw StateError('Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $hoursLeft giờ.');
-        }
-      }
+    // 1. Ghi thông báo vào hộp thư của con nợ (quyền create luôn được phép cho user đã login)
+    final newNotifId = const Uuid().v4();
+    final notifRef = _db
+        .collection('users')
+        .doc(targetUid)
+        .collection('notifications')
+        .doc(newNotifId);
 
-      // 1. Ghi thông báo vào hộp thư của con nợ
-      final newNotifId = const Uuid().v4();
-      final notifRef = _db.collection('users').doc(targetUid).collection('notifications').doc(newNotifId);
-
-      tx.set(notifRef, {
-        'title': '💌 Lời nhắc thanh toán từ $creditorName',
-        'body': body,
-        'type': NotificationType.debtReminder.name,
-        'targetDebtId': debtId,
-        'isRead': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      // 2. Cập nhật mốc thời gian nhắc nợ trên document nợ
-      tx.update(debtRef, {
-        'lastReminderAt': FieldValue.serverTimestamp(),
-      });
+    await notifRef.set({
+      'title': '💌 Lời nhắc thanh toán từ $creditorName',
+      'body': body,
+      'type': NotificationType.debtReminder.name,
+      'targetDebtId': debtId,
+      'isRead': false,
+      'createdAt': FieldValue.serverTimestamp(),
     });
+
+    // 2. Cập nhật mốc thời gian nhắc nợ trên document nợ (nếu cloud rules cho phép)
+    try {
+      await debtRef.update({'lastReminderAt': FieldValue.serverTimestamp()});
+    } catch (e) {
+      debugPrint('sendDebtReminder: update lastReminderAt skipped ($e)');
+    }
   }
 }
 
@@ -195,59 +207,66 @@ class ReadNotificationIdsNotifier extends StateNotifier<Set<String>> {
 
 final readNotificationIdsProvider =
     StateNotifierProvider<ReadNotificationIdsNotifier, Set<String>>((ref) {
-  return ReadNotificationIdsNotifier();
-});
+      return ReadNotificationIdsNotifier();
+    });
 
-final userNotificationsProvider =
-    StreamProvider.autoDispose.family<List<AppNotification>, String>((ref, uid) {
-  final debtsAsync = ref.watch(userDebtsProvider(uid));
-  final readIds = ref.watch(readNotificationIdsProvider);
+final userNotificationsProvider = StreamProvider.autoDispose
+    .family<List<AppNotification>, String>((ref, uid) {
+      final debtsAsync = ref.watch(userDebtsProvider(uid));
+      final readIds = ref.watch(readNotificationIdsProvider);
 
-  final debts = debtsAsync.valueOrNull ?? [];
-  final smartNotifs = <AppNotification>[];
+      final debts = debtsAsync.valueOrNull ?? [];
+      final smartNotifs = <AppNotification>[];
 
-  for (final debt in debts) {
-    final owed = debt.amountOwedBy(uid);
-    final debtDocId = Debt.docId(debt.userA, debt.userB);
+      for (final debt in debts) {
+        final owed = debt.amountOwedBy(uid);
+        final debtDocId = Debt.docId(debt.userA, debt.userB);
 
-    if (owed > 0) {
-      final notifId = 'debt_need_pay_$debtDocId';
-      smartNotifs.add(
-        AppNotification(
-          id: notifId,
-          title: '🔔 Cần thanh toán nợ',
-          body: 'Bạn đang có khoản nợ ${formatVnd(owed)}. Chạm để mở App Ngân hàng chuyển khoản ngay!',
-          type: NotificationType.debtReminder,
-          targetDebtId: debtDocId,
-          isRead: readIds.contains(notifId),
-          createdAt: debt.updatedAt,
-        ),
+        if (owed > 0) {
+          final notifId = 'debt_need_pay_$debtDocId';
+          smartNotifs.add(
+            AppNotification(
+              id: notifId,
+              title: '🔔 Cần thanh toán nợ',
+              body:
+                  'Bạn đang có khoản nợ ${formatVnd(owed)}. Chạm để mở App Ngân hàng chuyển khoản ngay!',
+              type: NotificationType.debtReminder,
+              targetDebtId: debtDocId,
+              isRead: readIds.contains(notifId),
+              createdAt: debt.updatedAt,
+            ),
+          );
+        } else if (owed < 0) {
+          final notifId = 'debt_lend_$debtDocId';
+          smartNotifs.add(
+            AppNotification(
+              id: notifId,
+              title: '🤝 Khoản tiền cho vay',
+              body:
+                  'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết hoặc gửi lời nhắc!',
+              type: NotificationType.debtReminder,
+              targetDebtId: debtDocId,
+              isRead: readIds.contains(notifId),
+              createdAt: debt.updatedAt,
+            ),
+          );
+        }
+      }
+
+      return ref
+          .watch(notificationRepositoryProvider)
+          .watchNotifications(uid)
+          .map((cloudNotifs) {
+            final all = [...smartNotifs, ...cloudNotifs];
+            all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+            return all;
+          });
+    });
+
+final unreadNotificationCountProvider = Provider.autoDispose
+    .family<AsyncValue<int>, String>((ref, uid) {
+      final notifsAsync = ref.watch(userNotificationsProvider(uid));
+      return notifsAsync.whenData(
+        (notifs) => notifs.where((n) => !n.isRead).length,
       );
-    } else if (owed < 0) {
-      final notifId = 'debt_lend_$debtDocId';
-      smartNotifs.add(
-        AppNotification(
-          id: notifId,
-          title: '🤝 Khoản tiền cho vay',
-          body: 'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết hoặc gửi lời nhắc!',
-          type: NotificationType.debtReminder,
-          targetDebtId: debtDocId,
-          isRead: readIds.contains(notifId),
-          createdAt: debt.updatedAt,
-        ),
-      );
-    }
-  }
-
-  return ref.watch(notificationRepositoryProvider).watchNotifications(uid).map((cloudNotifs) {
-    final all = [...smartNotifs, ...cloudNotifs];
-    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return all;
-  });
-});
-
-final unreadNotificationCountProvider =
-    Provider.autoDispose.family<AsyncValue<int>, String>((ref, uid) {
-  final notifsAsync = ref.watch(userNotificationsProvider(uid));
-  return notifsAsync.whenData((notifs) => notifs.where((n) => !n.isRead).length);
-});
+    });

@@ -19,10 +19,7 @@ import 'widgets/recent_activity_section.dart';
 class DashboardTab extends ConsumerWidget {
   final void Function(int tabIndex) onNavigateToTab;
 
-  const DashboardTab({
-    super.key,
-    required this.onNavigateToTab,
-  });
+  const DashboardTab({super.key, required this.onNavigateToTab});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -79,13 +76,32 @@ class DashboardTab extends ConsumerWidget {
           ),
           orElse: () => const Text('Tổng quan tài chính'),
         ),
-        actions: [
-          NotificationBellButton(currentUid: user.uid),
-        ],
+        actions: [NotificationBellButton(currentUid: user.uid)],
       ),
       body: debtsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Lỗi tải dữ liệu nợ: $e')),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
+                const SizedBox(height: 12),
+                const Text(
+                  'Không thể tải dữ liệu công nợ',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () => ref.invalidate(userDebtsProvider(user.uid)),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Thử lại'),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (debts) {
           // Tính tổng nợ và tổng được nợ
           var totalOwed = 0;
@@ -102,10 +118,42 @@ class DashboardTab extends ConsumerWidget {
 
           return sessionsAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(child: Text('Lỗi tải phiên: $e')),
+            error: (e, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.cloud_off,
+                      size: 48,
+                      color: Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Không thể tải danh sách phiên',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () =>
+                          ref.invalidate(userSessionsProvider(user.uid)),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Thử lại'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             data: (sessions) {
               return ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 children: [
                   // 1. Thẻ Cán cân tài chính ròng
                   NetBalanceCard(
@@ -119,7 +167,8 @@ class DashboardTab extends ConsumerWidget {
                     onNewSession: () => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => CreateSessionScreen(creatorUid: user.uid),
+                        builder: (_) =>
+                            CreateSessionScreen(creatorUid: user.uid),
                       ),
                     ),
                     onAddFriend: () => Navigator.push(
@@ -139,10 +188,8 @@ class DashboardTab extends ConsumerWidget {
                     onSelectDebt: (debt) => Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => DebtDetailScreen(
-                          debt: debt,
-                          currentUid: user.uid,
-                        ),
+                        builder: (_) =>
+                            DebtDetailScreen(debt: debt, currentUid: user.uid),
                       ),
                     ),
                   ),

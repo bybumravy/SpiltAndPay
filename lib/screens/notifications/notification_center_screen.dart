@@ -33,10 +33,16 @@ class NotificationCenterScreen extends ConsumerWidget {
             icon: const Icon(Icons.done_all),
             tooltip: 'Đánh dấu tất cả đã đọc',
             onPressed: () async {
-              final notifs = ref.read(userNotificationsProvider(user.uid)).valueOrNull ?? [];
+              final notifs =
+                  ref.read(userNotificationsProvider(user.uid)).valueOrNull ??
+                  [];
               final ids = notifs.map((n) => n.id).toList();
-              await ref.read(readNotificationIdsProvider.notifier).markAllRead(ids);
-              await ref.read(notificationRepositoryProvider).markAllAsRead(user.uid);
+              await ref
+                  .read(readNotificationIdsProvider.notifier)
+                  .markAllRead(ids);
+              await ref
+                  .read(notificationRepositoryProvider)
+                  .markAllAsRead(user.uid);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Đã đánh dấu tất cả đã đọc.')),
@@ -54,7 +60,11 @@ class NotificationCenterScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.notifications_none, size: 64, color: Colors.grey.shade400),
+                Icon(
+                  Icons.notifications_none,
+                  size: 64,
+                  color: Colors.grey.shade400,
+                ),
                 const SizedBox(height: 16),
                 const Text(
                   'Bạn chưa có thông báo nào.',
@@ -78,8 +88,11 @@ class NotificationCenterScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.notifications_off_outlined,
-                      size: 64, color: Colors.grey.shade400),
+                  Icon(
+                    Icons.notifications_off_outlined,
+                    size: 64,
+                    color: Colors.grey.shade400,
+                  ),
                   const SizedBox(height: 16),
                   const Text(
                     'Bạn chưa có thông báo nào.',
@@ -146,7 +159,9 @@ class _NotificationTile extends ConsumerWidget {
   Future<void> _handleTap(BuildContext context, WidgetRef ref) async {
     // 1. Đánh dấu đã đọc
     if (!notification.isRead) {
-      await ref.read(readNotificationIdsProvider.notifier).markRead(notification.id);
+      await ref
+          .read(readNotificationIdsProvider.notifier)
+          .markRead(notification.id);
       await ref
           .read(notificationRepositoryProvider)
           .markAsRead(currentUid, notification.id);
@@ -157,17 +172,24 @@ class _NotificationTile extends ConsumerWidget {
     // 2. Điều hướng nếu có targetDebtId
     if (notification.targetDebtId != null) {
       final debts = ref.read(userDebtsProvider(currentUid)).valueOrNull;
-      final matchedDebt = debts?.firstWhere(
-        (d) => Debt.docId(d.userA, d.userB) == notification.targetDebtId,
-      );
+      final matchedDebt = debts
+          ?.where(
+            (d) => Debt.docId(d.userA, d.userB) == notification.targetDebtId,
+          )
+          .firstOrNull;
       if (matchedDebt != null && context.mounted) {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => DebtDetailScreen(
-              debt: matchedDebt,
-              currentUid: currentUid,
-            ),
+            builder: (_) =>
+                DebtDetailScreen(debt: matchedDebt, currentUid: currentUid),
+          ),
+        );
+        return;
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Khoản nợ đã được tất toán hoặc không còn khả dụng.'),
           ),
         );
         return;
@@ -177,9 +199,9 @@ class _NotificationTile extends ConsumerWidget {
     // 3. Điều hướng nếu có targetSessionId
     if (notification.targetSessionId != null) {
       final sessions = ref.read(userSessionsProvider(currentUid)).valueOrNull;
-      final matchedSession = sessions?.firstWhere(
-        (s) => s.sessionId == notification.targetSessionId,
-      );
+      final matchedSession = sessions
+          ?.where((s) => s.sessionId == notification.targetSessionId)
+          .firstOrNull;
       if (matchedSession != null && context.mounted) {
         Navigator.push(
           context,
@@ -201,7 +223,9 @@ class _NotificationTile extends ConsumerWidget {
     final dateStr = DateFormat('dd/MM HH:mm').format(notification.createdAt);
 
     return ListTile(
-      tileColor: notification.isRead ? null : theme.colorScheme.primaryContainer.withAlpha(25),
+      tileColor: notification.isRead
+          ? null
+          : theme.colorScheme.primaryContainer.withAlpha(25),
       leading: CircleAvatar(
         backgroundColor: iconColor.withAlpha(30),
         child: Icon(_getIcon(), color: iconColor, size: 20),
@@ -212,7 +236,9 @@ class _NotificationTile extends ConsumerWidget {
             child: Text(
               notification.title,
               style: TextStyle(
-                fontWeight: notification.isRead ? FontWeight.w600 : FontWeight.bold,
+                fontWeight: notification.isRead
+                    ? FontWeight.w600
+                    : FontWeight.bold,
                 fontSize: 14,
               ),
             ),
@@ -236,7 +262,9 @@ class _NotificationTile extends ConsumerWidget {
             notification.body,
             style: TextStyle(
               fontSize: 12,
-              color: notification.isRead ? theme.colorScheme.onSurfaceVariant : null,
+              color: notification.isRead
+                  ? theme.colorScheme.onSurfaceVariant
+                  : null,
             ),
           ),
           const SizedBox(height: 4),
