@@ -91,7 +91,10 @@ class DebtRepository {
         'status': PaymentStatus.pending.name,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      tx.update(debtRef, {'pendingPaymentId': paymentId});
+      tx.update(debtRef, {
+        'pendingPaymentId': paymentId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 

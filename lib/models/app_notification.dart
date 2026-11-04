@@ -31,8 +31,11 @@ class AppNotification {
   /// Thông báo này có được phép ẩn khi đã đọc hay không?
   /// - Thông báo nợ chưa trả (`debt_need_pay_`): KHÔNG ĐƯỢC PHÉP ẨN
   ///   (chỉ được ẩn khi đã xác nhận trả nợ thành công, tức nợ về 0).
+  /// - Thông báo yêu cầu xác nhận thanh toán (`debt_confirm_`): KHÔNG ĐƯỢC PHÉP ẨN
+  ///   (chỉ được ẩn khi chủ nợ đã hoàn tất xác nhận giao dịch).
   /// - Thông báo đã xác nhận trả nợ, cho vay, phiên đóng: ĐƯỢC ẨN khi đã đọc.
-  bool get canDismissOnRead => !id.startsWith('debt_need_pay_');
+  bool get canDismissOnRead =>
+      !id.startsWith('debt_need_pay_') && !id.startsWith('debt_confirm_');
 
   AppNotification copyWith({
     String? id,
