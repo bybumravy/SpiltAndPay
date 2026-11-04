@@ -107,6 +107,23 @@ class GuestObligation {
     );
   }
 
+  GuestObligation copyWith({
+    GuestObligationStatus? status,
+    DateTime? collectedAt,
+    String? collectedBy,
+  }) => GuestObligation(
+    obligationId: obligationId,
+    sessionId: sessionId,
+    expenseId: expenseId,
+    payerId: payerId,
+    guestMemberId: guestMemberId,
+    amount: amount,
+    status: status ?? this.status,
+    createdAt: createdAt,
+    collectedAt: collectedAt ?? this.collectedAt,
+    collectedBy: collectedBy ?? this.collectedBy,
+  );
+
   Map<String, dynamic> toMap() => {
     'sessionId': sessionId,
     if (expenseId != null) 'expenseId': expenseId,
@@ -118,4 +135,43 @@ class GuestObligation {
     if (collectedAt != null) 'collectedAt': Timestamp.fromDate(collectedAt!),
     if (collectedBy != null) 'collectedBy': collectedBy,
   };
+
+  @override
+  bool operator ==(Object other) =>
+      other is GuestObligation &&
+      other.obligationId == obligationId &&
+      other.sessionId == sessionId &&
+      other.expenseId == expenseId &&
+      other.payerId == payerId &&
+      other.guestMemberId == guestMemberId &&
+      other.amount == amount &&
+      other.status == status &&
+      other.collectedBy == collectedBy;
+
+  @override
+  int get hashCode => Object.hash(
+    obligationId,
+    sessionId,
+    expenseId,
+    payerId,
+    guestMemberId,
+    amount,
+    status,
+    collectedBy,
+  );
+}
+
+/// Local policy helper. Firestore Rules and app checks do not make client-side
+/// collection verification server-authoritative.
+GuestObligation? collectGuestObligation(
+  GuestObligation obligation, {
+  required String actorUid,
+}) {
+  if (obligation.payerId != actorUid) return null;
+  if (obligation.status == GuestObligationStatus.collected) return obligation;
+  return obligation.copyWith(
+    status: GuestObligationStatus.collected,
+    collectedAt: DateTime.now(),
+    collectedBy: actorUid,
+  );
 }

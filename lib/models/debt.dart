@@ -74,3 +74,28 @@ class Debt {
     };
   }
 }
+
+/// Immutable settlement generated when a session closes.
+class DebtEntry {
+  final String sessionId;
+  final String fromUserId;
+  final String toUserId;
+  final int amount;
+  final DateTime createdAt;
+
+  const DebtEntry({
+    required this.sessionId,
+    required this.fromUserId,
+    required this.toUserId,
+    required this.amount,
+    required this.createdAt,
+  });
+
+  Map<String, dynamic> toMap() => {
+    'sessionId': sessionId,
+    'fromUserId': fromUserId,
+    'toUserId': toUserId,
+    'amount': amount,
+    'createdAt': Timestamp.fromDate(createdAt),
+  };
+}

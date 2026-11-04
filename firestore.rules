@@ -25,6 +25,18 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    function canWriteSessionExpenses(sessionId) {
+      let parent = sessionPath(sessionId);
+      return (exists(parent) &&
+              get(parent).data.creatorId == request.auth.uid &&
+              get(parent).data.status == 'open' &&
+              getAfter(parent).data.status == 'open') ||
+             (!exists(parent) &&
+              getAfter(parent).data.creatorId == request.auth.uid &&
+              getAfter(parent).data.status == 'open');
+    }
+
+
     // ── users ────────────────────────────────────────────────────────────────
     // Đọc: bất kỳ user đã đăng nhập (cần để tìm bạn bè theo email/uid).
     // Ghi: chỉ chính chủ.
@@ -58,29 +70,69 @@ service cloud.firestore {
                        request.resource.data.totalAmount is int &&
                        request.resource.data.totalAmount > 0;
 
-      // Only the trusted close callable may transition sessions to closed.
+      // Spark trusted-client writes: creator may update title while open,
+      // adjust total atomically with expense mutations, or close once.
       allow update: if isSignedIn() &&
                        request.auth.uid == resource.data.creatorId &&
                        resource.data.status == 'open' &&
-                       request.resource.data.status == 'open' &&
-                       onlyChanges(['title']);
+                       request.resource.data.memberUserIds == resource.data.memberUserIds &&
+                       request.resource.data.creatorId == resource.data.creatorId &&
+                       ((request.resource.data.status == 'open' &&
+                         onlyChanges(['title'])) ||
+                        (request.resource.data.status == 'open' &&
+                         onlyChanges(['totalAmount', 'lastExpenseMutationId']) &&
+                         request.resource.data.totalAmount is int &&
+                         request.resource.data.totalAmount > 0 &&
+                         request.resource.data.lastExpenseMutationId is string) ||
+                        (request.resource.data.status == 'closed' &&
+                         onlyChanges(['status', 'closedAt', 'totalAmount', 'closeResult']) &&
+                         request.resource.data.totalAmount == resource.data.totalAmount &&
+                         request.resource.data.closeResult is map &&
+                         request.resource.data.closeResult.totalAmount == request.resource.data.totalAmount));
 
       allow delete: if isSignedIn() &&
                        request.auth.uid == resource.data.creatorId &&
                        resource.data.status == 'open';
 
-      // Itemized expenses and guest obligations are readable by session
-      // members; only trusted Admin SDK callables may write them.
+      // Itemized expense writes are client-trusted, constrained to an open
+      // session's creator and paired with a total update in the same batch.
       match /expenses/{expenseId} {
         allow read: if isSignedIn() &&
-                       request.auth.uid in get(sessionPath(sessionId)).data.memberUserIds;
-        allow write: if false;
+                       (exists(sessionPath(sessionId))
+                          ? request.auth.uid in get(sessionPath(sessionId)).data.memberUserIds
+                          : request.auth.uid in getAfter(sessionPath(sessionId)).data.memberUserIds);
+        allow create, update, delete: if isSignedIn() &&
+          canWriteSessionExpenses(sessionId) &&
+          (request.method == 'delete' ||
+            (request.resource.data.amount is int &&
+             request.resource.data.amount > 0 &&
+             existsAfter(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.resource.data.payerId)) &&
+             getAfter(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.resource.data.payerId)).data.userId in getAfter(sessionPath(sessionId)).data.memberUserIds &&
+             request.resource.data.participantIds is list &&
+             request.resource.data.participantIds.size() > 0 &&
+             request.resource.data.shares is map &&
+             request.resource.data.description is string &&
+             request.resource.data.description.size() > 0));
       }
 
       match /guestObligations/{obligationId} {
         allow read: if isSignedIn() &&
                        request.auth.uid in get(sessionPath(sessionId)).data.memberUserIds;
-        allow write: if false;
+        allow create: if isSignedIn() &&
+          get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
+          get(sessionPath(sessionId)).data.status == 'open' &&
+          getAfter(sessionPath(sessionId)).data.status == 'closed' &&
+          request.resource.data.sessionId == sessionId &&
+          request.resource.data.payerId in get(sessionPath(sessionId)).data.memberUserIds &&
+          request.resource.data.amount is int && request.resource.data.amount > 0 &&
+          request.resource.data.status == 'pending';
+        allow update: if isSignedIn() &&
+          request.auth.uid == resource.data.payerId &&
+          request.resource.data.status == 'collected' &&
+          resource.data.status == 'pending' &&
+          onlyChanges(['status', 'collectedAt', 'collectedBy']) &&
+          request.resource.data.collectedBy == request.auth.uid;
+        allow delete: if false;
       }
 
       // members: thành viên đọc. Creator tạo cùng lúc với phiên (số tiền hợp lệ,
@@ -98,8 +150,17 @@ service cloud.firestore {
                          request.resource.data.amountPaid >= 0 &&
                          request.resource.data.amountPaid <= getAfter(sessionPath(sessionId)).data.totalAmount;
 
-        // Accounting status is written by trusted callables only.
-        allow update: if false;
+        // Creator may write computed accounting fields only while closing;
+        // this is intentionally trusted-client, not server-authoritative.
+        allow update: if isSignedIn() &&
+                         get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
+                         get(sessionPath(sessionId)).data.status == 'open' &&
+                         getAfter(sessionPath(sessionId)).data.status == 'closed' &&
+                         onlyChanges(['amountOwed', 'amountPaid', 'status', 'paidAt']) &&
+                         request.resource.data.amountOwed is int &&
+                         request.resource.data.amountOwed >= 0 &&
+                         request.resource.data.amountPaid is int &&
+                         request.resource.data.amountPaid >= 0;
 
         allow delete: if isSignedIn() &&
                          get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
@@ -135,13 +196,19 @@ service cloud.firestore {
       allow read: if isSignedIn() &&
                      request.auth.uid in resource.data.participants;
 
-      // Tạo khoản nợ mới: chỉ qua đóng phiên.
+      // New debt documents are created only by a creator closing a session.
       allow create: if isSignedIn() &&
                        request.resource.data.userA < request.resource.data.userB &&
                        debtId == request.resource.data.userA + '_' + request.resource.data.userB &&
                        request.resource.data.participants == [request.resource.data.userA, request.resource.data.userB] &&
                        !('pendingPaymentId' in request.resource.data) &&
-                       closingEntryMatches(debtId);
+                       request.resource.data.lastEntryId is string &&
+                       closingEntryMatches(debtId) &&
+                       get(sessionPath(request.resource.data.lastEntryId)).data.creatorId == request.auth.uid &&
+                       get(sessionPath(request.resource.data.lastEntryId)).data.status == 'open' &&
+                       getAfter(sessionPath(request.resource.data.lastEntryId)).data.status == 'closed' &&
+                       request.resource.data.userA in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds &&
+                       request.resource.data.userB in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds;
 
       allow update: if isSignedIn() &&
                        request.auth.uid in resource.data.participants &&
@@ -156,9 +223,17 @@ service cloud.firestore {
                           !('pendingPaymentId' in request.resource.data) &&
                           confirmMatches(debtId)) ||
 
-                         // (c) Đóng phiên: balance đổi đúng bằng entry mới.
+                         // (c) Closing a session: creator adds an entry for
+                         // current session members with matching balance delta.
                          (onlyChanges(['balance', 'lastEntryId', 'updatedAt']) &&
-                          closingEntryMatches(debtId))
+                          !('pendingPaymentId' in resource.data) &&
+                          request.resource.data.lastEntryId is string &&
+                          closingEntryMatches(debtId) &&
+                          get(sessionPath(request.resource.data.lastEntryId)).data.creatorId == request.auth.uid &&
+                          get(sessionPath(request.resource.data.lastEntryId)).data.status == 'open' &&
+                          getAfter(sessionPath(request.resource.data.lastEntryId)).data.status == 'closed' &&
+                          request.resource.data.userA in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds &&
+                          request.resource.data.userB in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds)
                        );
 
       allow delete: if false;

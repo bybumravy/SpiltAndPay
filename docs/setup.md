@@ -9,7 +9,7 @@ Repository hiện có cấu hình Firebase runtime cho Android. `DefaultFirebase
 - Flutter SDK có Dart thỏa ràng buộc trong `pubspec.yaml`.
 - Android SDK và thiết bị/emulator Android.
 - JDK 17; Gradle Android đặt Java/Kotlin target 17.
-- Node.js 22 cho Functions, npm và Java để chạy Firebase Emulator.
+- Node.js 22 cho Functions, npm, Java và Firebase CLI để chạy Firebase Emulator.
 - Firebase project đã bật Authentication, Cloud Firestore và Cloud Functions cho môi trường dùng thật.
 
 ## Cài dependency và chạy app
@@ -59,7 +59,7 @@ npm test --prefix functions
 
 ## Functions integration với Firestore Emulator
 
-Firebase CLI đã nằm trong dev dependencies của `rules_test`. Sau khi cài cả hai workspace:
+Sau khi cài dependency Functions và Rules tests:
 
 ```sh
 npm ci --prefix functions
@@ -69,10 +69,10 @@ npm ci --prefix rules_test
 Chạy Functions suite dưới Firestore Emulator để kích hoạt integration tests:
 
 ```sh
-npm exec --prefix rules_test -- firebase emulators:exec --only firestore --project demo-splitpay --config firebase.test.json "npm test --prefix functions"
+firebase emulators:exec --only firestore,functions --project demo-splitpay --config firebase.test.json "npm test --prefix functions"
 ```
 
-`firebase.test.json` trỏ Rules tới `firestore.rules`, Functions source tới `functions`, dùng Firestore port 8080, Functions port 5001 và tắt Emulator UI. Lệnh trên chỉ cần Firestore vì callable tests gọi handler trực tiếp trong process Node.
+`firebase.test.json` trỏ Rules tới `firestore.rules`, Functions source tới `functions`, dùng Firestore port 8080, Functions port 5001 và tắt Emulator UI. Callable integration tests gọi handler trong process Node nhưng dùng Firestore Emulator cho dữ liệu; Functions Emulator đồng thời xác minh các exports có thể được nạp.
 
 ## Firestore Rules tests
 

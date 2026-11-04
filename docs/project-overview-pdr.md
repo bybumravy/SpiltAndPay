@@ -58,7 +58,7 @@ SplitPay là ứng dụng Flutter Android hỗ trợ ghi nhận chi phí nhóm, 
 - Tạo session cùng members/expenses trong atomic batch; sửa/xóa expense chỉ khi creator và session còn mở; không xóa khoản cuối cùng.
 - Guest obligation chỉ được đánh dấu `collected` bởi payer thực tế; thao tác lặp của chính payer là idempotent.
 - Dữ liệu legacy không có expense items vẫn được đọc/đóng bằng nhánh tương thích.
-- Rules chặn client ghi expenses, guest collection state và member accounting; balance/entry/payment chỉ đổi theo các flow được kiểm tra.
+- Rules chặn client ghi expenses, guest collection state và sửa member accounting sau khi tạo; balance/entry/payment chỉ đổi theo các flow được kiểm tra.
 
 ## Backlog sản phẩm
 

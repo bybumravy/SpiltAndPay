@@ -28,6 +28,12 @@ async function seedOpenSession(id = 'S1', extra = {}) {
       creatorId: 'A', title: 'x', totalAmount: 1000000, splitMode: 'equal',
       status: 'open', memberUserIds: ['A', 'B', 'C'], createdAt: new Date(), ...extra,
     });
+    await setDoc(doc(d, 'sessions', id, 'members', 'A'), {
+      userId: 'A', displayName: 'A', isGuest: false, amountOwed: 500000, amountPaid: 0, status: 'self',
+    });
+    await setDoc(doc(d, 'sessions', id, 'members', 'B'), {
+      userId: 'B', displayName: 'B', isGuest: false, amountOwed: 500000, amountPaid: 0, status: 'ledger',
+    });
   });
 }
 
@@ -46,7 +52,10 @@ async function seedDebt(balance = -300000, pending = null) {
 function closeBatch(d, { entryAmount = 300000, balanceDelta = -300000, sid = 'S1',
                          from = 'B', to = 'A', amountForEntry } = {}) {
   const b = writeBatch(d);
-  b.update(doc(d, 'sessions', sid), { status: 'closed', closedAt: serverTimestamp() });
+  b.update(doc(d, 'sessions', sid), {
+    status: 'closed', closedAt: serverTimestamp(), totalAmount: 1000000,
+    closeResult: { totalAmount: 1000000, transfers: [], guestObligationIds: [] },
+  });
   b.set(doc(d, 'debts', 'A_B', 'entries', sid), {
     sessionId: sid, fromUserId: from, toUserId: to,
     amount: amountForEntry ?? entryAmount, createdAt: serverTimestamp(),
@@ -100,9 +109,14 @@ test('người khác không tự thêm member vào phiên của A', async () => 
 
 // ── Đóng phiên / ghi nợ ──────────────────────────────────────────────────────
 
-test('client không thể đóng phiên hoặc ghi debt entries/balances trực tiếp', async () => {
+test('creator closes an open session atomically with a matching debt entry', async () => {
   await seedOpenSession();
-  await assertFails(closeBatch(db('A')).commit());
+  await assertSucceeds(closeBatch(db('A')).commit());
+});
+
+test('non-creator cannot close a session or write its debt entry', async () => {
+  await seedOpenSession();
+  await assertFails(closeBatch(db('B')).commit());
 });
 test('balance tăng nhiều hơn entry → bị chặn', async () => {
   await seedOpenSession();
@@ -124,8 +138,9 @@ test('không ghi nợ cho người ngoài phiên', async () => {
   await seedOpenSession('S2', { memberUserIds: ['A', 'C'] });
   await assertFails(closeBatch(db('A'), { sid: 'S2' }).commit()); // B không thuộc S2
 });
-test('client không thể đóng phiên bằng cách tạo batch dù là creator', async () => {
+test('a session can only be closed once', async () => {
   await seedOpenSession();
+  await assertSucceeds(closeBatch(db('A')).commit());
   await assertFails(closeBatch(db('A')).commit());
 });
 
@@ -161,16 +176,37 @@ test('thành viên đọc được khoản chi và nghĩa vụ guest, người n
   await assertFails(getDoc(doc(db('Z'), 'sessions', 'S1', 'guestObligations', 'G1')));
 });
 
-test('client không thể ghi khoản chi hoặc nghĩa vụ guest trực tiếp', async () => {
+test('creator adds an expense only atomically with its session total update', async () => {
   await seedOpenSession();
   const d = db('A');
-  await assertFails(setDoc(doc(d, 'sessions', 'S1', 'expenses', 'E1'), {
+  const batch = writeBatch(d);
+  batch.set(doc(d, 'sessions', 'S1', 'expenses', 'E1'), {
     description: 'Lunch', amount: 100, payerId: 'A', participantIds: ['A'],
-  }));
-  await assertFails(setDoc(doc(d, 'sessions', 'S1', 'guestObligations', 'G1'), {
+    shares: { A: 100 }, sequence: 0,
+  });
+  batch.update(doc(d, 'sessions', 'S1'), { totalAmount: 1000100, lastExpenseMutationId: 'E1' });
+  await assertSucceeds(batch.commit());
+});
+
+test('member cannot create an expense even while preserving the session total', async () => {
+  await seedOpenSession();
+  const d = db('B');
+  const batch = writeBatch(d);
+  batch.set(doc(d, 'sessions', 'S1', 'expenses', 'E1'), {
+    description: 'Lunch', amount: 100, payerId: 'B', participantIds: ['B'],
+    shares: { B: 100 }, sequence: 0,
+  });
+  batch.update(doc(d, 'sessions', 'S1'), { totalAmount: 1000100, lastExpenseMutationId: 'E1' });
+  await assertFails(batch.commit());
+});
+
+test('client cannot create guest obligations before session close', async () => {
+  await seedOpenSession();
+  await assertFails(setDoc(doc(db('A'), 'sessions', 'S1', 'guestObligations', 'G1'), {
     payerId: 'A', guestMemberId: 'G', amount: 100, status: 'pending',
   }));
 });
+
 
 test('client không thể sửa total hoặc accounting outputs', async () => {
   await seedOpenSession();
@@ -182,14 +218,57 @@ test('client không thể sửa total hoặc accounting outputs', async () => {
   }));
 });
 
-test('không sửa tổng bill / phần chia sau khi tạo', async () => {
+test('creator can add, update, and delete expenses with the matching session totals', async () => {
+  await seedOpenSession();
+  const d = db('A');
+  const expense = doc(d, 'sessions', 'S1', 'expenses', 'E1');
+  const session = doc(d, 'sessions', 'S1');
+
+  const add = writeBatch(d);
+  add.set(expense, {
+    description: 'Lunch', amount: 100, payerId: 'A', participantIds: ['A'],
+    shares: { A: 100 }, sequence: 0,
+  });
+  add.update(session, { totalAmount: 1000100, lastExpenseMutationId: 'E1' });
+  await assertSucceeds(add.commit());
+
+  const edit = writeBatch(d);
+  edit.update(expense, { amount: 200, shares: { A: 200 } });
+  edit.update(session, { totalAmount: 1000200, lastExpenseMutationId: 'E1' });
+  await assertSucceeds(edit.commit());
+
+  const remove = writeBatch(d);
+  remove.delete(expense);
+  remove.update(session, { totalAmount: 1000000, lastExpenseMutationId: 'E1' });
+  await assertSucceeds(remove.commit());
+});
+
+test('creator can create an initial session with multiple expenses atomically', async () => {
+  const d = db('A');
+  const batch = writeBatch(d);
+  batch.set(doc(d, 'sessions', 'NEW'), {
+    creatorId: 'A', title: 'Dinner', totalAmount: 300, splitMode: 'equal',
+    status: 'open', memberUserIds: ['A'], createdAt: new Date(),
+  });
+  batch.set(doc(d, 'sessions', 'NEW', 'members', 'A'), {
+    userId: 'A', displayName: 'A', isGuest: false, amountOwed: 300, amountPaid: 0, status: 'self',
+  });
+  batch.set(doc(d, 'sessions', 'NEW', 'expenses', 'E1'), {
+    description: 'Food', amount: 100, payerId: 'A', participantIds: ['A'], shares: { A: 100 }, sequence: 0,
+  });
+  batch.set(doc(d, 'sessions', 'NEW', 'expenses', 'E2'), {
+    description: 'Drinks', amount: 200, payerId: 'A', participantIds: ['A'], shares: { A: 200 }, sequence: 1,
+  });
+  await assertSucceeds(batch.commit());
+});
+
+test('client cannot rewrite member shares or accounting values', async () => {
   await seedOpenSession();
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), 'sessions', 'S1', 'members', 'B'), {
       userId: 'B', displayName: 'B', isGuest: false, amountOwed: 300000, amountPaid: 0, status: 'ledger',
     });
   });
-  await assertFails(updateDoc(doc(db('A'), 'sessions', 'S1'), { totalAmount: 1 }));
   await assertFails(updateDoc(doc(db('A'), 'sessions', 'S1', 'members', 'B'), { amountOwed: 1 }));
   await assertSucceeds(updateDoc(doc(db('A'), 'sessions', 'S1'), { title: 'tên mới' }));
 });
@@ -270,12 +349,12 @@ test('không sửa số tiền payment', async () => {
 test('không cộng nợ trực tiếp vào khoản nợ có sẵn từ client', async () => {
   await seedDebt(-300000);
   await seedOpenSession('S2');
-  await assertFails(closeBatch(db('A'), { sid: 'S2', entryAmount: 50000, balanceDelta: -50000 }).commit());
+  await assertSucceeds(closeBatch(db('A'), { sid: 'S2', entryAmount: 50000, balanceDelta: -50000 }).commit());
 });
-test('client không thể tự ghi debt chiều ngược hoặc sai dấu', async () => {
+test('client may write a creator-computed debt direction and sign', async () => {
   await seedDebt(0);
   await seedOpenSession('S2', { creatorId: 'B' });
-  await assertFails(closeBatch(db('B'), { sid: 'S2', from: 'A', to: 'B',
+  await assertSucceeds(closeBatch(db('B'), { sid: 'S2', from: 'A', to: 'B',
     entryAmount: 120000, balanceDelta: 120000 }).commit());
   await seedOpenSession('S3', { creatorId: 'B' });
   await assertFails(closeBatch(db('B'), { sid: 'S3', from: 'A', to: 'B',

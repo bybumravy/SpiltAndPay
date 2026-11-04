@@ -61,10 +61,10 @@ npm ci --prefix functions
 npm test --prefix functions
 ```
 
-Functions integration tests dưới Firestore Emulator:
+Functions integration tests dưới Firebase Emulator:
 
 ```sh
-npm exec --prefix rules_test -- firebase emulators:exec --only firestore --project demo-splitpay --config firebase.test.json "npm test --prefix functions"
+firebase emulators:exec --only firestore,functions --project demo-splitpay --config firebase.test.json "npm test --prefix functions"
 ```
 
 Rules tests riêng; script tự khởi động Firestore Emulator:

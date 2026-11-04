@@ -13,7 +13,7 @@
 - Equal shares được tính từ amount/participant order; remainder được phân bổ theo thứ tự và bảo toàn tổng khoản.
 - UI thêm/sửa/xóa item khi phiên mở, chọn payer/participants, xem shares và đóng phiên có xác nhận.
 - Tổng phiên, member paid/owed, account net positions và guest obligations được tổng hợp từ item.
-- Cloud Functions tin cậy xác thực create/mutate/close và tính lại settlement; client không tự ghi expense/member accounting hoặc guest collection state.
+- Cloud Functions tin cậy xác thực create/mutate/close và tính lại settlement; client không ghi expenses, sửa member accounting hoặc cập nhật guest collection state trực tiếp.
 - Expenses nằm tại `sessions/{sessionId}/expenses/{expenseId}`; guest claims tại `sessions/{sessionId}/guestObligations/{obligationId}`.
 - Phiên legacy không có expense documents vẫn đọc/đóng qua nhánh tương thích.
 
