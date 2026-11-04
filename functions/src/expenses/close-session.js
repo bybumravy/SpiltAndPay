@@ -71,7 +71,7 @@ export function calculateSessionClose({ items, members, creatorId, expectedTotal
       for (const memberId of item.participantIds) {
         const member = memberById.get(memberId);
         if (!member) throw new TypeError('Expense participant must be a current member');
-        if (member.isGuest === true || !member.userId) {
+        if ((member.isGuest === true || !member.userId) && shares[memberId] > 0) {
           obligations.push({
             id: `${item.id}_${memberId}`,
             expenseId: item.id,

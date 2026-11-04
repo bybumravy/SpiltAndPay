@@ -42,3 +42,11 @@ test('rejects item totals that disagree with the stored session total', () => {
     { id: 'E1', amount: 5, payerId: 'A', participantIds: ['A'] },
   ], members: [{ id: 'A', userId: 'A', isGuest: false }], creatorId: 'A', expectedTotal: 6 }), /total/i);
 });
+
+test('does not create collectible guest claims for zero shares after rounding', () => {
+  const result = calculateSessionClose({
+    items: [{id:'tiny', amount:1, payerId:'A', participantIds:['A','G']}],
+    members: [{id:'A', userId:'A', isGuest:false}, {id:'G', userId:null, isGuest:true}], creatorId:'A',
+  });
+  assert.deepEqual(result.obligations, []);
+});
