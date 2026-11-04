@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase_providers.dart';
+import '../../../models/session.dart';
 import '../../../repositories/debt_repository.dart';
 import '../../../repositories/session_repository.dart';
 import '../../../repositories/user_repository.dart';
@@ -16,6 +17,34 @@ import 'widgets/net_balance_card.dart';
 import 'widgets/quick_actions_bar.dart';
 import 'widgets/recent_activity_section.dart';
 
+/// Provider phiên có cơ chế tự động thử lại (auto-retry với backoff)
+/// bảo vệ khỏi độ trễ đồng bộ Auth token trên thiết bị di động.
+final dashboardSessionsProvider = StreamProvider.autoDispose
+    .family<List<Session>, String>((ref, uid) async* {
+      var retryCount = 0;
+      while (true) {
+        try {
+          final stream =
+              ref.watch(sessionRepositoryProvider).watchUserSessions(uid);
+          await for (final list in stream) {
+            retryCount = 0;
+            yield list;
+          }
+          break;
+        } catch (e) {
+          if (e.toString().contains('permission-denied') && retryCount < 4) {
+            retryCount++;
+            debugPrint(
+              'dashboardSessionsProvider: transient permission-denied, retrying ($retryCount/4)...',
+            );
+            await Future.delayed(Duration(milliseconds: 500 * retryCount));
+            continue;
+          }
+          rethrow;
+        }
+      }
+    });
+
 class DashboardTab extends ConsumerWidget {
   final void Function(int tabIndex) onNavigateToTab;
 
@@ -26,30 +55,9 @@ class DashboardTab extends ConsumerWidget {
     final user = ref.watch(authProvider).currentUser;
     if (user == null) return const SizedBox.shrink();
 
-    // Tự động thử lại khi gặp độ trễ đồng bộ Auth token trên Firestore
-    ref.listen(userSessionsProvider(user.uid), (previous, next) {
-      if (next.hasError && (previous == null || !previous.hasError)) {
-        if (next.error.toString().contains('permission-denied')) {
-          Future.delayed(const Duration(milliseconds: 600), () {
-            ref.invalidate(userSessionsProvider(user.uid));
-          });
-        }
-      }
-    });
-
-    ref.listen(userDebtsProvider(user.uid), (previous, next) {
-      if (next.hasError && (previous == null || !previous.hasError)) {
-        if (next.error.toString().contains('permission-denied')) {
-          Future.delayed(const Duration(milliseconds: 600), () {
-            ref.invalidate(userDebtsProvider(user.uid));
-          });
-        }
-      }
-    });
-
     final userProfileAsync = ref.watch(currentUserProvider(user.uid));
     final debtsAsync = ref.watch(userDebtsProvider(user.uid));
-    final sessionsAsync = ref.watch(userSessionsProvider(user.uid));
+    final sessionsAsync = ref.watch(dashboardSessionsProvider(user.uid));
 
     final theme = Theme.of(context);
 
@@ -99,125 +107,132 @@ class DashboardTab extends ConsumerWidget {
         ),
         actions: [NotificationBellButton(currentUid: user.uid)],
       ),
-      body: debtsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
-                const SizedBox(height: 12),
-                const Text(
-                  'Không thể tải dữ liệu công nợ',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: () => ref.invalidate(userDebtsProvider(user.uid)),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Thử lại'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        data: (debts) {
-          // Tính tổng nợ và tổng được nợ
-          var totalOwed = 0;
-          var totalReceivable = 0;
-
-          for (final d in debts) {
-            final amount = d.amountOwedBy(user.uid);
-            if (amount > 0) {
-              totalOwed += amount;
-            } else if (amount < 0) {
-              totalReceivable += amount.abs();
-            }
-          }
-
-          return sessionsAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) => Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.cloud_off,
-                      size: 48,
-                      color: Colors.grey.shade400,
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Không thể tải danh sách phiên',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: () =>
-                          ref.invalidate(userSessionsProvider(user.uid)),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Thử lại'),
-                    ),
-                  ],
-                ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(userDebtsProvider(user.uid));
+          ref.invalidate(dashboardSessionsProvider(user.uid));
+          ref.invalidate(currentUserProvider(user.uid));
+        },
+        child: debtsAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Không thể tải dữ liệu công nợ',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () =>
+                        ref.invalidate(userDebtsProvider(user.uid)),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Thử lại'),
+                  ),
+                ],
               ),
             ),
-            data: (sessions) {
-              return ListView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
+          ),
+          data: (debts) {
+            // Tính tổng nợ và tổng được nợ
+            var totalOwed = 0;
+            var totalReceivable = 0;
+
+            for (final d in debts) {
+              final amount = d.amountOwedBy(user.uid);
+              if (amount > 0) {
+                totalOwed += amount;
+              } else if (amount < 0) {
+                totalReceivable += amount.abs();
+              }
+            }
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
+              children: [
+                // 1. Thẻ Cán cân tài chính ròng
+                NetBalanceCard(
+                  totalOwed: totalOwed,
+                  totalReceivable: totalReceivable,
                 ),
-                children: [
-                  // 1. Thẻ Cán cân tài chính ròng
-                  NetBalanceCard(
-                    totalOwed: totalOwed,
-                    totalReceivable: totalReceivable,
-                  ),
-                  const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-                  // 2. Thao tác nhanh
-                  QuickActionsBar(
-                    onNewSession: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            CreateSessionScreen(creatorUid: user.uid),
-                      ),
-                    ),
-                    onAddFriend: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AddFriendScreen(currentUid: user.uid),
-                      ),
-                    ),
-                    onNavigateToDebts: () => onNavigateToTab(2), // Tab Công nợ
-                  ),
-                  const SizedBox(height: 20),
-
-                  // 3. Cần xử lý ngay
-                  ActionRequiredSection(
-                    debts: debts,
-                    currentUid: user.uid,
-                    onSelectDebt: (debt) => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            DebtDetailScreen(debt: debt, currentUid: user.uid),
-                      ),
+                // 2. Thao tác nhanh
+                QuickActionsBar(
+                  onNewSession: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          CreateSessionScreen(creatorUid: user.uid),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  onAddFriend: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddFriendScreen(currentUid: user.uid),
+                    ),
+                  ),
+                  onNavigateToDebts: () => onNavigateToTab(2), // Tab Công nợ
+                ),
+                const SizedBox(height: 20),
 
-                  // 4. Hoạt động gần đây
-                  RecentActivitySection(
+                // 3. Cần xử lý ngay
+                ActionRequiredSection(
+                  debts: debts,
+                  currentUid: user.uid,
+                  onSelectDebt: (debt) => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          DebtDetailScreen(debt: debt, currentUid: user.uid),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // 4. Hoạt động gần đây (cách ly lỗi, tự động phục hồi)
+                sessionsAsync.when(
+                  loading: () => const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (e, _) => Card(
+                    margin: const EdgeInsets.only(top: 8),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(Icons.cloud_off, color: Colors.grey.shade500),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Chưa đồng bộ được hoạt động gần đây.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => ref.invalidate(
+                              dashboardSessionsProvider(user.uid),
+                            ),
+                            child: const Text('Thử lại'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  data: (sessions) => RecentActivitySection(
                     sessions: sessions,
                     currentUid: user.uid,
                     onSelectSession: (session) => Navigator.push(
@@ -231,12 +246,12 @@ class DashboardTab extends ConsumerWidget {
                     ),
                     onViewAllSessions: () => onNavigateToTab(1), // Tab Phiên
                   ),
-                  const SizedBox(height: 24),
-                ],
-              );
-            },
-          );
-        },
+                ),
+                const SizedBox(height: 24),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
