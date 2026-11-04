@@ -53,6 +53,7 @@ class NotificationRepository {
     if (notificationId.startsWith('debt_need_pay_')) return;
     // Nếu là thông báo thông minh được sinh in-memory từ khoản nợ thì không cần gọi Firestore
     if (notificationId.startsWith('debt_lend_') ||
+        notificationId.startsWith('debt_confirm_') ||
         notificationId.startsWith('debt_settled_')) {
       return;
     }
@@ -159,20 +160,38 @@ final userNotificationsProvider = StreamProvider.autoDispose
           );
         } else if (owed < 0) {
           // 2. Khoản tiền bạn đang cho vay:
-          // Bạn là chủ nợ, được đánh dấu đã đọc và ẩn đi khi đã nắm thông tin.
-          final notifId = 'debt_lend_${debtDocId}_${debt.balance}';
-          smartNotifs.add(
-            AppNotification(
-              id: notifId,
-              title: '🤝 Khoản tiền cho vay',
-              body:
-                  'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết!',
-              type: NotificationType.debtReminder,
-              targetDebtId: debtDocId,
-              isRead: readIds.contains(notifId),
-              createdAt: debt.updatedAt,
-            ),
-          );
+          if (debt.hasPendingPayment) {
+            // Con nợ đã bấm thanh toán -> Chủ nợ cần xác nhận
+            final notifId =
+                'debt_confirm_${debtDocId}_${debt.pendingPaymentId}';
+            smartNotifs.add(
+              AppNotification(
+                id: notifId,
+                title: '⚡ Chờ bạn xác nhận thanh toán',
+                body:
+                    'Đối phương đã bấm chuyển tiền ${formatVnd(owed.abs())}. Chạm để kiểm tra và xác nhận!',
+                type: NotificationType.paymentPending,
+                targetDebtId: debtDocId,
+                isRead: readIds.contains(notifId),
+                createdAt: debt.updatedAt,
+              ),
+            );
+          } else {
+            // Bạn là chủ nợ, được đánh dấu đã đọc và ẩn đi khi đã nắm thông tin.
+            final notifId = 'debt_lend_${debtDocId}_${debt.balance}';
+            smartNotifs.add(
+              AppNotification(
+                id: notifId,
+                title: '🤝 Khoản tiền cho vay',
+                body:
+                    'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết!',
+                type: NotificationType.debtReminder,
+                targetDebtId: debtDocId,
+                isRead: readIds.contains(notifId),
+                createdAt: debt.updatedAt,
+              ),
+            );
+          }
         } else if (debt.balance == 0) {
           // 3. Khoản nợ đã xác nhận trả nợ thành công (đã hòa / balance == 0):
           // Thông báo xác nhận thành công này CÓ THỂ được đánh dấu đã đọc và ẨN ĐI.

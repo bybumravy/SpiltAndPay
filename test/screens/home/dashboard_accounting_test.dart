@@ -72,5 +72,55 @@ void main() {
       expect(debtsToPay.first.userB, otherUid1);
       expect(debtsToPay.first.amountOwedBy(currentUid), 200000);
     });
+
+    test('chủ nợ KHÔNG có việc cần làm nếu con nợ chưa thanh toán (k hiển thị ở Cần xử lý ngay)', () {
+      final debts = [
+        Debt(
+          userA: otherUid2,
+          userB: currentUid,
+          balance: 50000, // Hoàng nợ Trường 50k
+          updatedAt: DateTime.now(),
+          pendingPaymentId: null, // Chưa thanh toán
+        ),
+      ];
+
+      // Logic mục Cần xử lý ngay
+      final pendingConfirmation = debts.where((d) {
+        final isCreditor = d.amountOwedBy(currentUid) < 0;
+        return isCreditor && d.hasPendingPayment;
+      }).toList();
+
+      final debtsToPay = debts.where((d) => d.amountOwedBy(currentUid) > 0).toList();
+      final urgentItems = [...pendingConfirmation, ...debtsToPay];
+
+      // Kỳ vọng: Danh sách việc cần làm RỖNG vì con nợ chưa chuyển tiền
+      expect(urgentItems.isEmpty, isTrue);
+    });
+
+    test('chủ nợ CÓ việc cần làm khi con nợ đã chuyển tiền chờ xác nhận', () {
+      final debts = [
+        Debt(
+          userA: otherUid2,
+          userB: currentUid,
+          balance: 50000, // Hoàng nợ Trường 50k
+          updatedAt: DateTime.now(),
+          pendingPaymentId: 'pay_123', // Hoàng đã bấm "Tôi đã chuyển"
+        ),
+      ];
+
+      // Logic mục Cần xử lý ngay
+      final pendingConfirmation = debts.where((d) {
+        final isCreditor = d.amountOwedBy(currentUid) < 0;
+        return isCreditor && d.hasPendingPayment;
+      }).toList();
+
+      final debtsToPay = debts.where((d) => d.amountOwedBy(currentUid) > 0).toList();
+      final urgentItems = [...pendingConfirmation, ...debtsToPay];
+
+      // Kỳ vọng: 1 việc cần làm (xác nhận chuyển khoản)
+      expect(urgentItems.length, 1);
+      expect(urgentItems.first.pendingPaymentId, 'pay_123');
+      expect(urgentItems.first.amountOwedBy(currentUid) < 0, isTrue);
+    });
   });
 }

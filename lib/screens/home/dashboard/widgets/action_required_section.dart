@@ -20,10 +20,11 @@ class ActionRequiredSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // 1. Khoản nợ người khác báo đã chuyển, chờ mình xác nhận (Ưu tiên cao nhất)
+    // CHỦ NỢ CHỈ CẦN XỬ LÝ KHI: con nợ đã chuyển tiền (có pendingPaymentId chờ xác nhận).
+    // Nếu con nợ chưa chuyển tiền thì chủ nợ KHÔNG có hành động nào cần xử lý ngay.
     final pendingConfirmation = debts.where((d) {
-      final isCreditor = d.creditorFor(currentUid) == null &&
-          d.amountOwedBy(currentUid) < 0; // Số âm nghĩa là người khác nợ mình
-      return isCreditor;
+      final isCreditor = d.amountOwedBy(currentUid) < 0;
+      return isCreditor && d.hasPendingPayment;
     }).toList();
 
     // 2. Khoản nợ mình đang nợ người khác (Cần trả)
@@ -134,6 +135,40 @@ class _ActionDebtTile extends ConsumerWidget {
       orElse: () => otherUid,
     );
 
+    // Xác định nội dung và trạng thái
+    final String subtitle;
+    final Color subtitleColor;
+    final String actionText;
+    final Color actionColor;
+    final Color avatarBg;
+    final Color avatarText;
+
+    if (iAmDebtor) {
+      if (debt.hasPendingPayment) {
+        subtitle = 'Đang chờ chủ nợ xác nhận';
+        subtitleColor = Colors.blue.shade700;
+        actionText = 'Chờ duyệt';
+        actionColor = Colors.blue.shade700;
+        avatarBg = Colors.blue.shade100;
+        avatarText = Colors.blue.shade900;
+      } else {
+        subtitle = 'Bạn cần thanh toán';
+        subtitleColor = Colors.red.shade700;
+        actionText = 'Trả ngay';
+        actionColor = Theme.of(context).colorScheme.primary;
+        avatarBg = Colors.red.shade100;
+        avatarText = Colors.red.shade800;
+      }
+    } else {
+      // Chủ nợ: Chỉ xuất hiện khi con nợ đã chuyển tiền chờ xác nhận
+      subtitle = 'Đã chuyển tiền, chờ bạn xác nhận';
+      subtitleColor = Colors.orange.shade900;
+      actionText = 'Xác nhận';
+      actionColor = Colors.orange.shade900;
+      avatarBg = Colors.amber.shade100;
+      avatarText = Colors.amber.shade900;
+    }
+
     return Material(
       color: Theme.of(context).colorScheme.surface,
       elevation: 1,
@@ -147,11 +182,11 @@ class _ActionDebtTile extends ConsumerWidget {
             children: [
               CircleAvatar(
                 radius: 18,
-                backgroundColor: iAmDebtor ? Colors.red.shade100 : Colors.green.shade100,
+                backgroundColor: avatarBg,
                 child: Text(
                   otherName.isNotEmpty ? otherName[0].toUpperCase() : '?',
                   style: TextStyle(
-                    color: iAmDebtor ? Colors.red.shade800 : Colors.green.shade800,
+                    color: avatarText,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -167,10 +202,11 @@ class _ActionDebtTile extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      iAmDebtor ? 'Bạn cần thanh toán' : 'Người này đang nợ bạn',
+                      subtitle,
                       style: TextStyle(
                         fontSize: 12,
-                        color: iAmDebtor ? Colors.red.shade700 : Colors.green.shade700,
+                        color: subtitleColor,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -184,7 +220,7 @@ class _ActionDebtTile extends ConsumerWidget {
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: iAmDebtor ? Colors.red.shade700 : Colors.green.shade700,
+                      color: iAmDebtor ? Colors.red.shade700 : Colors.teal.shade700,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -192,17 +228,17 @@ class _ActionDebtTile extends ConsumerWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        iAmDebtor ? 'Trả ngay' : 'Chi tiết',
+                        actionText,
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: Theme.of(context).colorScheme.primary,
+                          color: actionColor,
                         ),
                       ),
                       Icon(
                         Icons.chevron_right,
                         size: 14,
-                        color: Theme.of(context).colorScheme.primary,
+                        color: actionColor,
                       ),
                     ],
                   ),
