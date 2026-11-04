@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../repositories/auth_repository.dart';
+import '../../ui/app_theme.dart';
 
 /// Màn hình đăng nhập / đăng ký.
 /// Hỗ trợ 2 phương thức: Google và Email/Password.
@@ -31,11 +32,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-    setState(() { _isLoading = true; _errorMessage = null; });
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     try {
       await ref.read(authRepositoryProvider).signInWithGoogle();
       // AuthGate sẽ tự điều hướng sau khi authStateProvider emit user mới.
     } catch (e) {
+      if (!mounted) return;
       setState(() => _errorMessage = e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -45,7 +50,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _handleEmailSubmit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() { _isLoading = true; _errorMessage = null; });
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     try {
       final auth = ref.read(authRepositoryProvider);
       if (_isSignUp) {
@@ -61,9 +69,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
     } on Exception catch (e) {
+      if (!mounted) return;
       // Dịch lỗi Firebase sang tiếng Việt cho dễ hiểu.
       final msg = e.toString();
-      if (msg.contains('user-not-found') || msg.contains('wrong-password') ||
+      if (msg.contains('user-not-found') ||
+          msg.contains('wrong-password') ||
           msg.contains('invalid-credential')) {
         setState(() => _errorMessage = 'Email hoặc mật khẩu không đúng.');
       } else if (msg.contains('email-already-in-use')) {
@@ -79,59 +89,89 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Logo / tiêu đề
-                const Icon(Icons.receipt_long, size: 64, color: Color(0xFF6C63FF)),
-                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.soft,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.receipt_long_outlined,
+                      size: 30,
+                      color: AppTheme.purple,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
                 Text(
                   'Split & Pay',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF6C63FF),
-                  ),
+                  style: Theme.of(context).textTheme.headlineMedium,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _isSignUp ? 'Tạo tài khoản mới' : 'Chào mừng trở lại',
-                  style: Theme.of(context).textTheme.bodyLarge,
+                  _isSignUp ? 'Tạo tài khoản' : 'Đăng nhập',
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(color: AppTheme.muted),
                 ),
                 const SizedBox(height: 32),
-
-                // Form email/password
+                OutlinedButton.icon(
+                  onPressed: _isLoading ? null : _handleGoogleSignIn,
+                  icon: const Icon(Icons.g_mobiledata, size: 28),
+                  label: const Text('Tiếp tục với Google'),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 22),
+                  child: Row(
+                    children: [
+                      Expanded(child: Divider()),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(
+                          'hoặc',
+                          style: TextStyle(color: AppTheme.muted, fontSize: 13),
+                        ),
+                      ),
+                      Expanded(child: Divider()),
+                    ],
+                  ),
+                ),
                 Form(
                   key: _formKey,
                   child: Column(
                     children: [
-                      if (_isSignUp)
+                      if (_isSignUp) ...[
                         TextFormField(
                           controller: _nameController,
+                          textCapitalization: TextCapitalization.words,
                           decoration: const InputDecoration(
                             labelText: 'Họ và tên',
-                            prefixIcon: Icon(Icons.person_outline),
-                            border: OutlineInputBorder(),
                           ),
-                          validator: (v) =>
-                              (v == null || v.trim().isEmpty) ? 'Nhập họ tên' : null,
+                          validator: (v) => v == null || v.trim().isEmpty
+                              ? 'Nhập họ tên'
+                              : null,
                         ),
-                      if (_isSignUp) const SizedBox(height: 16),
+                        const SizedBox(height: 16),
+                      ],
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: Icon(Icons.email_outlined),
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) =>
-                            (v == null || !v.contains('@')) ? 'Email không hợp lệ' : null,
+                        autofillHints: const [AutofillHints.email],
+                        decoration: const InputDecoration(labelText: 'Email'),
+                        validator: (v) => v == null || !v.contains('@')
+                            ? 'Email không hợp lệ'
+                            : null,
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
@@ -139,65 +179,48 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         obscureText: true,
                         decoration: const InputDecoration(
                           labelText: 'Mật khẩu',
-                          prefixIcon: Icon(Icons.lock_outline),
-                          border: OutlineInputBorder(),
                         ),
-                        validator: (v) =>
-                            (v == null || v.length < 6) ? 'Tối thiểu 6 ký tự' : null,
+                        validator: (v) => v == null || v.length < 6
+                            ? 'Tối thiểu 6 ký tự'
+                            : null,
                       ),
                     ],
                   ),
                 ),
-
-                // Thông báo lỗi
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
-                    textAlign: TextAlign.center,
+                if (_errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: Text(
+                      _errorMessage!,
+                      style: const TextStyle(color: AppTheme.red),
+                    ),
                   ),
-                ],
-
                 const SizedBox(height: 24),
-
-                // Nút Email submit
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _isLoading ? null : _handleEmailSubmit,
-                    child: _isLoading
-                        ? const SizedBox(
-                            height: 20, width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : Text(_isSignUp ? 'Đăng ký' : 'Đăng nhập'),
-                  ),
+                FilledButton(
+                  onPressed: _isLoading ? null : _handleEmailSubmit,
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(_isSignUp ? 'Tạo tài khoản' : 'Đăng nhập'),
                 ),
                 const SizedBox(height: 12),
-
-                // Toggle đăng nhập / đăng ký
                 TextButton(
-                  onPressed: () => setState(() {
-                    _isSignUp = !_isSignUp;
-                    _errorMessage = null;
-                  }),
+                  onPressed: _isLoading
+                      ? null
+                      : () => setState(() {
+                          _isSignUp = !_isSignUp;
+                          _errorMessage = null;
+                        }),
                   child: Text(
                     _isSignUp
                         ? 'Đã có tài khoản? Đăng nhập'
                         : 'Chưa có tài khoản? Đăng ký',
-                  ),
-                ),
-
-                const Divider(height: 32),
-
-                // Nút Google
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: _isLoading ? null : _handleGoogleSignIn,
-                    icon: const Icon(Icons.g_mobiledata, size: 28),
-                    label: const Text('Tiếp tục với Google'),
                   ),
                 ),
               ],
@@ -205,6 +228,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
 }
