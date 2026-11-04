@@ -5,7 +5,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch,
-  increment, deleteField, serverTimestamp,
+  increment, deleteField, serverTimestamp, query, where,
 } from 'firebase/firestore';
 
 let env;
@@ -483,4 +483,33 @@ test('edited open draft still closes once and accepts a matching full payment', 
   await assertSucceeds(confirm.commit());
   await assertSucceeds(updateDoc(doc(db('D'),'sessions','S1','guestObligations','edited_G'), {status:'collected',collectedBy:'D',collectedAt:serverTimestamp()}));
   await assertFails(updateDoc(doc(db('A'),'sessions','S1','guestObligations','edited_G'), {status:'collected',collectedBy:'A',collectedAt:serverTimestamp()}));
+});
+
+const invitation = (s = 'A', r = 'B') => ({senderId:s, recipientId:r, participants:[s,r], senderName:s, recipientName:r, status:'pending', createdAt:serverTimestamp()});
+test('friendship requires recipient consent and blocks direct contact writes', async () => {
+  await assertFails(setDoc(doc(db('A'), 'users/A/contacts/B'), {name:'B'}));
+  await assertFails(setDoc(doc(db('A'), 'users/B/contacts/A'), {name:'A'}));
+  await assertSucceeds(setDoc(doc(db('A'), 'friendRequests/A_B'), invitation()));
+  await assertFails(updateDoc(doc(db('A'), 'friendRequests/A_B'), {status:'accepted'}));
+  await assertFails(updateDoc(doc(db('C'), 'friendRequests/A_B'), {status:'accepted'}));
+  await assertFails(setDoc(doc(db('B'), 'friendRequests/B_A'), invitation('B','A')));
+  await assertFails(setDoc(doc(db('B'), 'users/A/contacts/B'), {name:'B'}));
+  const recipientDb = db('B');
+  const batch = writeBatch(recipientDb);
+  batch.update(doc(recipientDb, 'friendRequests/A_B'), {status:'accepted'});
+  batch.set(doc(recipientDb, 'users/A/contacts/B'), {name:'B'});
+  batch.set(doc(recipientDb, 'users/B/contacts/A'), {name:'A'});
+  await assertSucceeds(batch.commit());
+  await assertFails(updateDoc(doc(db('B'), 'friendRequests/A_B'), {status:'pending'}));
+  await assertFails(getDoc(doc(db('C'), 'friendRequests/A_B')));
+  await assertSucceeds(getDocs(query(collection(db('B'), 'friendRequests'), where('participants','array-contains','B'))));
+});
+test('invitations block forgery and self invites; participants can reject or cancel', async () => {
+  await assertFails(setDoc(doc(db('C'), 'friendRequests/A_B'), invitation()));
+  await assertFails(setDoc(doc(db('A'), 'friendRequests/A_A'), invitation('A','A')));
+  await assertSucceeds(setDoc(doc(db('A'), 'friendRequests/A_B'), invitation()));
+  await assertFails(deleteDoc(doc(db('C'), 'friendRequests/A_B')));
+  await assertSucceeds(deleteDoc(doc(db('B'), 'friendRequests/A_B')));
+  await assertSucceeds(setDoc(doc(db('A'), 'friendRequests/A_B'), invitation()));
+  await assertSucceeds(deleteDoc(doc(db('A'), 'friendRequests/A_B')));
 });

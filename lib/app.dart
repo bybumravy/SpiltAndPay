@@ -5,6 +5,9 @@ import 'package:forui/forui.dart';
 import 'core/firebase_providers.dart';
 import 'ui/app_theme.dart';
 import 'repositories/user_repository.dart';
+import 'repositories/session_repository.dart';
+import 'repositories/debt_repository.dart';
+import 'repositories/guest_obligation_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/qr_onboarding_screen.dart';
 import 'screens/home/home_screen.dart';
@@ -38,6 +41,22 @@ class AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(authStateProvider, (previous, next) {
+      // Firestore listeners terminated on sign-out retain their last error.
+      // Recreate every account-scoped stream after a new authenticated session.
+      if (next.valueOrNull != null &&
+          previous?.valueOrNull?.uid != next.valueOrNull?.uid) {
+        ref.invalidate(currentUserProvider);
+        ref.invalidate(contactsProvider);
+        ref.invalidate(friendRequestsProvider);
+        ref.invalidate(userSessionsProvider);
+        ref.invalidate(sessionMembersProvider);
+        ref.invalidate(sessionExpensesProvider);
+        ref.invalidate(sessionGuestObligationsProvider);
+        ref.invalidate(userDebtsProvider);
+        ref.invalidate(paymentsProvider);
+      }
+    });
     final authState = ref.watch(authStateProvider);
 
     return authState.when(

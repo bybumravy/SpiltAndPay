@@ -118,3 +118,14 @@ rules_test/node_modules/.bin/firebase emulators:exec --project demo-splitpay-edi
 ```
 
 Cần emulator Android đang chạy. Debug manifest chỉ cho HTTP tới `10.0.2.2` để truy cập emulator Firebase trên máy host. Không chạy đồng thời với Rules tests vì dùng cùng port Firestore. Test bao phủ sửa toàn bộ, đồng bộ member accounting khi sửa khoản riêng, chống stale edit, thu hồi quyền thành viên bị xoá, đóng phiên, payment và guest collection; gồm cả creator chốt nợ giữa hai tài khoản khác mà không đọc số dư riêng của họ.
+
+
+## Gemini bill scanning experiment
+
+- Branch: `codex/gemini-bill-scanning`. Bill scanning uses Firebase AI Logic with the Gemini Developer API (`FirebaseAI.googleAI`), not a Gemini key in the APK.
+- Enable Firebase AI Logic for project `splitandpay-2a413` using the Gemini Developer API. Keep Spark/no Cloud Billing for eligible free-tier models; quotas still apply. Linking Cloud Billing changes Gemini usage to paid pricing.
+- Debug builds activate App Check debug providers. Register each device's debug secret under App Check > app > Manage debug tokens. `.local/` holds local setup secrets and is gitignored; do not commit or share debug tokens publicly. Release builds select Play Integrity/App Attest and require production provider registration.
+- Default model: `gemini-3.1-flash-lite`; override with `--dart-define=BILL_AI_MODEL=...` when testing another supported model. SDK versions stay compatible with the existing Firebase Core 3.x stack.
+- Capturing/removing photos is local. The explicit Read N images action sends one multi-image request (1-6 images, 8 MiB per image, 12 MiB combined before base64, 120-second timeout). A photo may contain several bills; the result contains up to 24 separate receipts with source-image indices and an explicit unreadable-images list. Receipt images leave the device only on that read action; free-tier data terms apply. Batching reduces request count, not the image/token input volume. Returning to unchanged results uses the cached draft and makes no request.
+- JSON extraction returns description, VND total, literal amount text and review flag. Only a positive integer VND amount matching the quoted digits is prefilled; other results require manual review. Matching fields do not prove the AI read the image correctly. Draft confirmation and the existing atomic session save still control persistence.
+- Tests inject the AI transport and cover invalid types, mismatched evidence, currency, unknown image signatures, oversized files, timeouts and quota/attestation errors. Run `flutter test --no-pub`. Live AI validation additionally requires registered App Check tokens and an enabled model/project quota.
