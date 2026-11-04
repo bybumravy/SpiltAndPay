@@ -57,5 +57,14 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-# Firebase rules test
+# Firebase emulator tests
 rules_test/node_modules/
+functions/node_modules/
+functions/.firebase/
+functions/.runtimeconfig.json
+functions/firebase-debug.log
+firebase-debug.log
+ui-debug.log
+
+# Claude Code temporary worktrees
+.claude/worktrees/

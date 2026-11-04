@@ -8,7 +8,9 @@ import '../../core/image_tools.dart';
 import '../../core/money.dart';
 import '../../core/vietqr.dart';
 import '../../core/vietqr_provider.dart';
+import '../../models/expense.dart';
 import '../../models/session.dart';
+import '../../repositories/guest_obligation_repository.dart';
 import '../../models/session_member.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
@@ -26,13 +28,21 @@ class SessionDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessions = ref.watch(userSessionsProvider(currentUid)).valueOrNull;
-    final currentSession = sessions?.firstWhere(
+    final currentSession =
+        sessions?.firstWhere(
           (s) => s.sessionId == session.sessionId,
           orElse: () => session,
         ) ??
         session;
-    final membersAsync =
-        ref.watch(sessionMembersProvider(currentSession.sessionId));
+    final membersAsync = ref.watch(
+      sessionMembersProvider(currentSession.sessionId),
+    );
+    final expensesAsync = ref.watch(
+      sessionExpensesProvider(currentSession.sessionId),
+    );
+    final guestObligationsAsync = ref.watch(
+      sessionGuestObligationsProvider(currentSession.sessionId),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -54,7 +64,9 @@ class SessionDetailScreen extends ConsumerWidget {
             PopupMenuButton<String>(
               onSelected: (val) {
                 if (val == 'edit') _editTitle(context, ref, currentSession);
-                if (val == 'delete') _confirmDelete(context, ref, currentSession);
+                if (val == 'delete') {
+                  _confirmDelete(context, ref, currentSession);
+                }
               },
               itemBuilder: (_) => [
                 if (currentSession.status == SessionStatus.open)
@@ -93,10 +105,14 @@ class SessionDetailScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Tổng bill',
-                          style: Theme.of(context).textTheme.bodySmall),
-                      Text(formatVnd(currentSession.totalAmount),
-                          style: Theme.of(context).textTheme.titleLarge),
+                      Text(
+                        'Tổng bill',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        formatVnd(currentSession.totalAmount),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
                     ],
                   ),
                 ),
@@ -106,28 +122,44 @@ class SessionDetailScreen extends ConsumerWidget {
           ),
           const Divider(height: 1),
 
-          // Danh sách thành viên
           Expanded(
             child: membersAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Lỗi: $e')),
-              data: (members) {
-                if (members.isEmpty) {
-                  return const Center(child: Text('Không có thành viên'));
-                }
-                return ListView.builder(
-                  itemCount: members.length,
-                  itemBuilder: (_, i) => _MemberTile(
-                    member: members[i],
-                    creatorId: currentSession.creatorId,
+              data: (members) => ListView(
+                children: [
+                  _ExpenseSection(
+                    expensesAsync: expensesAsync,
+                    members: members,
                     sessionId: currentSession.sessionId,
-                    sessionTitle: currentSession.title,
-                    isCreatorView: currentSession.creatorId == currentUid,
-                    currentUid: currentUid,
+                    creatorId: currentSession.creatorId,
+                    isEditable:
+                        currentSession.status == SessionStatus.open &&
+                        currentSession.creatorId == currentUid,
                   ),
-                );
-              },
+                  _GuestObligationSection(
+                    obligationsAsync: guestObligationsAsync,
+                    members: members,
+                    currentUid: currentUid,
+                    sessionId: currentSession.sessionId,
+                  ),
+                  const ListTile(title: Text('Thành viên')),
+                  if (members.isEmpty)
+                    const Center(child: Text('Không có thành viên'))
+                  else
+                    for (final member in members)
+                      _MemberTile(
+                        member: member,
+                        creatorId: currentSession.creatorId,
+                        sessionId: currentSession.sessionId,
+                        sessionTitle: currentSession.title,
+                        isCreatorView: currentSession.creatorId == currentUid,
+                        isItemizedSession:
+                            expensesAsync.valueOrNull?.isNotEmpty ?? true,
+                        currentUid: currentUid,
+                      ),
+                ],
+              ),
             ),
           ),
         ],
@@ -164,7 +196,9 @@ class SessionDetailScreen extends ConsumerWidget {
     if (confirmed != true || !context.mounted) return;
 
     try {
-      await ref.read(sessionRepositoryProvider).closeSession(
+      await ref
+          .read(sessionRepositoryProvider)
+          .closeSession(
             sessionId: targetSession.sessionId,
             creatorId: targetSession.creatorId,
             members: members,
@@ -180,7 +214,10 @@ class SessionDetailScreen extends ConsumerWidget {
   }
 
   Future<void> _editTitle(
-      BuildContext context, WidgetRef ref, Session targetSession) async {
+    BuildContext context,
+    WidgetRef ref,
+    Session targetSession,
+  ) async {
     final ctrl = TextEditingController(text: targetSession.title);
     final newTitle = await showDialog<String>(
       context: context,
@@ -207,14 +244,16 @@ class SessionDetailScreen extends ConsumerWidget {
     if (newTitle == null || newTitle.isEmpty || !context.mounted) return;
 
     try {
-      await ref.read(sessionRepositoryProvider).updateSessionTitle(
+      await ref
+          .read(sessionRepositoryProvider)
+          .updateSessionTitle(
             sessionId: targetSession.sessionId,
             newTitle: newTitle,
           );
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã cập nhật tên phiên')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Đã cập nhật tên phiên')));
       }
     } catch (e) {
       if (context.mounted) {
@@ -226,7 +265,10 @@ class SessionDetailScreen extends ConsumerWidget {
   }
 
   Future<void> _confirmDelete(
-      BuildContext context, WidgetRef ref, Session targetSession) async {
+    BuildContext context,
+    WidgetRef ref,
+    Session targetSession,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -270,6 +312,525 @@ class SessionDetailScreen extends ConsumerWidget {
   }
 }
 
+class _AddExpenseDialog extends StatefulWidget {
+  final List<SessionMember> members;
+  final String initialPayerId;
+
+  const _AddExpenseDialog({
+    required this.members,
+    required this.initialPayerId,
+  });
+
+  @override
+  State<_AddExpenseDialog> createState() => _AddExpenseDialogState();
+}
+
+class _AddExpenseDialogState extends State<_AddExpenseDialog> {
+  final _descriptionController = TextEditingController();
+  final _amountController = TextEditingController();
+  late String _payerId = widget.initialPayerId;
+  late final List<String> _participantIds = widget.members
+      .map((m) => m.memberId)
+      .toList();
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Thêm khoản chi'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: _descriptionController,
+          decoration: const InputDecoration(labelText: 'Mô tả'),
+        ),
+        TextField(
+          controller: _amountController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Số tiền (VND)'),
+        ),
+        DropdownButtonFormField<String>(
+          initialValue: _payerId,
+          decoration: const InputDecoration(labelText: 'Người trả'),
+          items: [
+            for (final member in widget.members.where((m) => m.userId != null))
+              DropdownMenuItem(
+                value: member.memberId,
+                child: Text(member.displayName),
+              ),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _payerId = value);
+          },
+        ),
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Text('Người tham gia'),
+        ),
+        for (final member in widget.members)
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(member.displayName),
+            value: _participantIds.contains(member.memberId),
+            onChanged: (selected) => setState(() {
+              if (selected == true) {
+                _participantIds.add(member.memberId);
+              } else {
+                _participantIds.remove(member.memberId);
+              }
+            }),
+          ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Huỷ'),
+      ),
+      FilledButton(
+        onPressed: () {
+          final description = _descriptionController.text.trim();
+          final parsedAmount = int.tryParse(_amountController.text.trim());
+          if (description.isNotEmpty &&
+              parsedAmount != null &&
+              parsedAmount > 0 &&
+              _participantIds.isNotEmpty &&
+              widget.members.any(
+                (member) =>
+                    member.memberId == _payerId && member.userId != null,
+              )) {
+            Navigator.pop(context, (
+              description: description,
+              amount: parsedAmount,
+              payerId: _payerId,
+              participantIds: List<String>.unmodifiable(_participantIds),
+            ));
+          }
+        },
+        child: const Text('Thêm'),
+      ),
+    ],
+  );
+}
+
+class _EditExpenseDialog extends StatefulWidget {
+  final Expense expense;
+  final List<SessionMember> members;
+
+  const _EditExpenseDialog({required this.expense, required this.members});
+
+  @override
+  State<_EditExpenseDialog> createState() => _EditExpenseDialogState();
+}
+
+class _EditExpenseDialogState extends State<_EditExpenseDialog> {
+  late final _descriptionController = TextEditingController(
+    text: widget.expense.description,
+  );
+  late final _amountController = TextEditingController(
+    text: widget.expense.amount.toString(),
+  );
+  late String _payerId = widget.expense.payerId;
+  late final List<String> _participantIds = [...widget.expense.participantIds];
+
+  @override
+  void dispose() {
+    _descriptionController.dispose();
+    _amountController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Sửa khoản chi'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: _descriptionController,
+          decoration: const InputDecoration(labelText: 'Mô tả'),
+        ),
+        TextField(
+          controller: _amountController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Số tiền (VND)'),
+        ),
+        DropdownButtonFormField<String>(
+          initialValue: _payerId,
+          decoration: const InputDecoration(labelText: 'Người trả'),
+          items: [
+            for (final member in widget.members.where((m) => m.userId != null))
+              DropdownMenuItem(
+                value: member.memberId,
+                child: Text(member.displayName),
+              ),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => _payerId = value);
+          },
+        ),
+        const Align(
+          alignment: Alignment.centerLeft,
+          child: Text('Người tham gia'),
+        ),
+        for (final member in widget.members)
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(member.displayName),
+            value: _participantIds.contains(member.memberId),
+            onChanged: (selected) => setState(() {
+              if (selected == true) {
+                _participantIds.add(member.memberId);
+              } else {
+                _participantIds.remove(member.memberId);
+              }
+            }),
+          ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Huỷ'),
+      ),
+      FilledButton(
+        onPressed: () {
+          final description = _descriptionController.text.trim();
+          final parsedAmount = int.tryParse(_amountController.text.trim());
+          if (description.isNotEmpty &&
+              parsedAmount != null &&
+              parsedAmount > 0 &&
+              _participantIds.isNotEmpty &&
+              widget.members.any(
+                (member) =>
+                    member.memberId == _payerId && member.userId != null,
+              )) {
+            Navigator.pop(
+              context,
+              ExpenseInput(
+                expenseId: widget.expense.expenseId,
+                description: description,
+                amount: parsedAmount,
+                payerId: _payerId,
+                participantIds: List.unmodifiable(_participantIds),
+              ),
+            );
+          }
+        },
+        child: const Text('Lưu'),
+      ),
+    ],
+  );
+}
+
+class _ExpenseSection extends ConsumerWidget {
+  final AsyncValue<List<Expense>> expensesAsync;
+  final List<SessionMember> members;
+  final String sessionId;
+  final String creatorId;
+  final bool isEditable;
+
+  const _ExpenseSection({
+    required this.expensesAsync,
+    required this.members,
+    required this.sessionId,
+    required this.creatorId,
+    required this.isEditable,
+  });
+
+  Future<void> _editExpense(
+    BuildContext context,
+    WidgetRef ref,
+    Expense expense,
+  ) async {
+    final result = await showDialog<ExpenseInput>(
+      context: context,
+      builder: (context) =>
+          _EditExpenseDialog(expense: expense, members: members),
+    );
+    if (result == null || !context.mounted) return;
+    try {
+      await ref
+          .read(sessionRepositoryProvider)
+          .updateExpense(
+            sessionId: sessionId,
+            expenseId: expense.expenseId,
+            expense: result,
+          );
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể sửa khoản chi. Thử lại.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _addExpense(
+    BuildContext context,
+    WidgetRef ref,
+    List<SessionMember> members,
+  ) async {
+    final accountMembers = members
+        .where((member) => member.userId != null)
+        .toList();
+    if (!accountMembers.any((member) => member.userId == creatorId)) return;
+    final creator = accountMembers.firstWhere(
+      (member) => member.userId == creatorId,
+    );
+    final result =
+        await showDialog<
+          ({
+            String description,
+            int amount,
+            String payerId,
+            List<String> participantIds,
+          })
+        >(
+          context: context,
+          builder: (context) => _AddExpenseDialog(
+            members: members,
+            initialPayerId: creator.memberId,
+          ),
+        );
+    if (result == null || !context.mounted) return;
+    try {
+      await ref
+          .read(sessionRepositoryProvider)
+          .addExpense(
+            sessionId: sessionId,
+            expense: ExpenseInput(
+              expenseId: newUuid(),
+              description: result.description,
+              amount: result.amount,
+              payerId: result.payerId,
+              participantIds: result.participantIds,
+            ),
+          );
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể thêm khoản chi. Thử lại.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteExpense(
+    BuildContext context,
+    WidgetRef ref,
+    Expense expense,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xoá khoản chi'),
+        content: Text('Xoá “${expense.description}”?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Huỷ'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Xoá'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await ref
+          .read(sessionRepositoryProvider)
+          .deleteExpense(sessionId: sessionId, expenseId: expense.expenseId);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể xoá khoản chi. Thử lại.')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => expensesAsync.when(
+    loading: () => const ListTile(
+      title: Text('Khoản chi'),
+      subtitle: LinearProgressIndicator(),
+    ),
+    error: (error, _) => ListTile(
+      title: const Text('Khoản chi'),
+      subtitle: Text('Không tải được danh sách: $error'),
+    ),
+    data: (expenses) {
+      if (expenses.isEmpty && !isEditable) return const SizedBox.shrink();
+      final names = {
+        for (final member in members) member.memberId: member.displayName,
+      };
+      return ExpansionTile(
+        title: const Text('Các khoản chi'),
+        subtitle: Text('${expenses.length} khoản'),
+        children: [
+          if (expenses.isEmpty)
+            const ListTile(title: Text('Chưa có khoản chi')),
+          for (final expense in expenses)
+            ListTile(
+              title: Text(expense.description),
+              subtitle: Text(
+                'Người trả: ${names[expense.payerId] ?? expense.payerId}\\n'
+                'Tham gia: ${expense.participantIds.map((id) => names[id] ?? id).join(', ')}',
+              ),
+              isThreeLine: true,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(formatVnd(expense.amount)),
+                  if (isEditable) ...[
+                    IconButton(
+                      tooltip: 'Sửa khoản chi',
+                      onPressed: () => _editExpense(context, ref, expense),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                    IconButton(
+                      tooltip: 'Xoá khoản chi',
+                      onPressed: expenses.length <= 1
+                          ? null
+                          : () => _deleteExpense(context, ref, expense),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ],
+                ],
+              ),
+              leading: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final share in expense.effectiveShares.entries)
+                    Text(
+                      '${names[share.key] ?? share.key}: ${formatVnd(share.value)}',
+                    ),
+                ],
+              ),
+            ),
+          if (isEditable)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed: () => _addExpense(context, ref, members),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Thêm khoản chi'),
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+class _GuestObligationSection extends ConsumerStatefulWidget {
+  final AsyncValue<List<GuestObligation>> obligationsAsync;
+  final List<SessionMember> members;
+  final String currentUid;
+  final String sessionId;
+
+  const _GuestObligationSection({
+    required this.obligationsAsync,
+    required this.members,
+    required this.currentUid,
+    required this.sessionId,
+  });
+
+  @override
+  ConsumerState<_GuestObligationSection> createState() =>
+      _GuestObligationSectionState();
+}
+
+class _GuestObligationSectionState
+    extends ConsumerState<_GuestObligationSection> {
+  final Set<String> _pending = {};
+
+  Future<void> _collect(GuestObligation obligation) async {
+    setState(() => _pending.add(obligation.obligationId));
+    try {
+      await ref
+          .read(guestObligationRepositoryProvider)
+          .markCollected(
+            sessionId: widget.sessionId,
+            obligationId: obligation.obligationId,
+          );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể xác nhận đã thu. Thử lại.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pending.remove(obligation.obligationId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.obligationsAsync.when(
+    loading: () => const ListTile(
+      title: Text('Khoản khách nợ'),
+      subtitle: LinearProgressIndicator(),
+    ),
+    error: (error, _) => ListTile(
+      title: const Text('Khoản khách nợ'),
+      subtitle: Text('Không tải được trạng thái: $error'),
+    ),
+    data: (obligations) {
+      if (obligations.isEmpty) return const SizedBox.shrink();
+      final guests = {
+        for (final member in widget.members)
+          member.memberId: member.displayName,
+      };
+      final payerNames = {
+        for (final member in widget.members)
+          if (member.userId != null) member.userId!: member.displayName,
+      };
+      return ExpansionTile(
+        title: const Text('Khoản khách nợ'),
+        subtitle: Text('${obligations.length} nghĩa vụ'),
+        children: [
+          for (final obligation in obligations)
+            ListTile(
+              title: Text(guests[obligation.guestMemberId] ?? 'Khách'),
+              subtitle: Text(
+                'Người thu: ${payerNames[obligation.payerId] ?? obligation.payerId} · '
+                '${formatVnd(obligation.amount)} · '
+                '${obligation.status == GuestObligationStatus.collected ? 'Đã thu' : 'Chưa thu'}',
+              ),
+              trailing: obligation.status == GuestObligationStatus.collected
+                  ? const Icon(Icons.check_circle, color: Colors.green)
+                  : obligation.payerId == widget.currentUid
+                  ? _pending.contains(obligation.obligationId)
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : TextButton(
+                            onPressed: () => _collect(obligation),
+                            child: const Text('Đã thu'),
+                          )
+                  : Text(formatVnd(obligation.amount)),
+            ),
+        ],
+      );
+    },
+  );
+}
+
 class _StatusChip extends StatelessWidget {
   final SessionStatus status;
   const _StatusChip(this.status);
@@ -278,8 +839,10 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final isOpen = status == SessionStatus.open;
     return Chip(
-      label: Text(isOpen ? 'Đang mở' : 'Đã đóng',
-          style: const TextStyle(fontSize: 12)),
+      label: Text(
+        isOpen ? 'Đang mở' : 'Đã đóng',
+        style: const TextStyle(fontSize: 12),
+      ),
       backgroundColor: isOpen ? Colors.green[50] : Colors.grey[200],
       side: BorderSide(color: isOpen ? Colors.green : Colors.grey),
       padding: EdgeInsets.zero,
@@ -292,7 +855,9 @@ class _MemberTile extends ConsumerStatefulWidget {
   final String creatorId;
   final String sessionId;
   final String sessionTitle;
-  final bool isCreatorView; // creator có thể đánh dấu "Đã thu" cho guest
+  final bool
+  isCreatorView; // creator can use legacy guest controls in legacy sessions
+  final bool isItemizedSession;
   final String currentUid;
 
   const _MemberTile({
@@ -301,6 +866,7 @@ class _MemberTile extends ConsumerStatefulWidget {
     required this.sessionId,
     required this.sessionTitle,
     required this.isCreatorView,
+    required this.isItemizedSession,
     required this.currentUid,
   });
 
@@ -309,52 +875,40 @@ class _MemberTile extends ConsumerStatefulWidget {
 }
 
 class _MemberTileState extends ConsumerState<_MemberTile> {
-  bool _isUpdating = false;
-
-  Future<void> _markGuestPaid() async {
-    setState(() => _isUpdating = true);
-    try {
-      await ref.read(sessionRepositoryProvider).markGuestPaid(
-            sessionId: widget.sessionId,
-            memberId: widget.member.memberId,
-          );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cập nhật thất bại. Thử lại.')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
-    }
-  }
-
-  /// Chia sẻ cho khách: ảnh QR của chủ nợ ghép với câu nhắc, gửi qua Zalo/Messenger.
+  /// Chia sẻ cho khách của phiên legacy không có nghĩa vụ theo từng khoản.
   Future<void> _shareGuest() async {
     final m = widget.member;
-    final message = 'Hi ${m.displayName}, tiền "${widget.sessionTitle}" của bạn là '
+    final message =
+        'Hi ${m.displayName}, tiền "${widget.sessionTitle}" của bạn là '
         '${formatVnd(m.amountOwed)} nhé. Quét mã này gửi mình nha!';
 
-    final qrUrl =
-        ref.read(currentUserProvider(widget.creatorId)).valueOrNull?.qrImageUrl;
+    final qrUrl = ref
+        .read(currentUserProvider(widget.creatorId))
+        .valueOrNull
+        ?.qrImageUrl;
     if (qrUrl == null) {
       // Chưa có QR → vẫn gửi được câu nhắc dạng chữ.
       await Share.share(message);
       return;
     }
 
-    setState(() => _isUpdating = true);
     try {
       // Ưu tiên mã VietQR có sẵn số tiền + nội dung; không đọc được thì dùng ảnh QR gốc.
       Uint8List qr;
-      final staticPayload = await ref.read(staticQrPayloadProvider(qrUrl).future);
+      final staticPayload = await ref.read(
+        staticQrPayloadProvider(qrUrl).future,
+      );
       final creatorName =
-          ref.read(currentUserProvider(widget.creatorId)).valueOrNull?.name ?? '';
+          ref.read(currentUserProvider(widget.creatorId)).valueOrNull?.name ??
+          '';
       if (staticPayload != null && m.amountOwed > 0) {
         final dyn = buildDynamicVietQr(
           staticPayload,
           amount: m.amountOwed,
-          note: transferNote(debtorName: m.displayName, creditorName: creatorName),
+          note: transferNote(
+            debtorName: m.displayName,
+            creditorName: creatorName,
+          ),
         );
         qr = await renderQrPng(dyn, size: 700, margin: 40);
       } else {
@@ -362,15 +916,17 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
       }
       final card = await buildPaymentCard(qrPng: qr, message: message);
       final path = await writeTempImage(card, 'thanh_toan_${m.memberId}.png');
-      await Share.shareXFiles([XFile(path, mimeType: 'image/png')], text: message);
+      await Share.shareXFiles([
+        XFile(path, mimeType: 'image/png'),
+      ], text: message);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không tạo được ảnh. Kiểm tra mạng và thử lại.')),
+          const SnackBar(
+            content: Text('Không tạo được ảnh. Kiểm tra mạng và thử lại.'),
+          ),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isUpdating = false);
     }
   }
 
@@ -391,7 +947,11 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
       subtitle = 'Người tạo';
       if (m.amountPaid > 0) subtitle += ' · đã ứng ${formatVnd(m.amountPaid)}';
     } else if (m.isGuest) {
-      subtitle = m.status == MemberStatus.paid ? 'Khách — đã trả' : 'Khách — chưa trả';
+      subtitle = widget.isItemizedSession
+          ? 'Khách — xem nghĩa vụ theo khoản chi'
+          : m.status == MemberStatus.paid
+          ? 'Khách — đã trả'
+          : 'Khách — chưa trả';
     } else {
       switch (m.status) {
         case MemberStatus.ledger:
@@ -406,35 +966,24 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
 
     // Trailing: số tiền + nút hành động cho guest
     Widget trailing;
-    if (m.isGuest && !isCreator && widget.isCreatorView) {
+    if (m.isGuest &&
+        !isCreator &&
+        widget.isCreatorView &&
+        !widget.isItemizedSession) {
       trailing = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(formatVnd(m.amountOwed)),
           const SizedBox(width: 4),
-          if (m.status != MemberStatus.paid) ...[
+          if (m.status != MemberStatus.paid)
             IconButton(
               icon: const Icon(Icons.share, size: 18),
               tooltip: 'Nhắc nhở',
               onPressed: _shareGuest,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-            ),
-            const SizedBox(width: 4),
-            _isUpdating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.check_circle_outline, size: 18),
-                    tooltip: 'Đã thu',
-                    onPressed: _markGuestPaid,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-          ] else
+            )
+          else
             const Icon(Icons.check_circle, color: Colors.green, size: 18),
         ],
       );

@@ -100,9 +100,9 @@ test('người khác không tự thêm member vào phiên của A', async () => 
 
 // ── Đóng phiên / ghi nợ ──────────────────────────────────────────────────────
 
-test('creator đóng phiên đúng: entry + balance khớp', async () => {
+test('client không thể đóng phiên hoặc ghi debt entries/balances trực tiếp', async () => {
   await seedOpenSession();
-  await assertSucceeds(closeBatch(db('A')).commit());
+  await assertFails(closeBatch(db('A')).commit());
 });
 test('balance tăng nhiều hơn entry → bị chặn', async () => {
   await seedOpenSession();
@@ -124,9 +124,8 @@ test('không ghi nợ cho người ngoài phiên', async () => {
   await seedOpenSession('S2', { memberUserIds: ['A', 'C'] });
   await assertFails(closeBatch(db('A'), { sid: 'S2' }).commit()); // B không thuộc S2
 });
-test('không đóng phiên 2 lần để cộng nợ trùng', async () => {
+test('client không thể đóng phiên bằng cách tạo batch dù là creator', async () => {
   await seedOpenSession();
-  await assertSucceeds(closeBatch(db('A')).commit());
   await assertFails(closeBatch(db('A')).commit());
 });
 
@@ -149,6 +148,40 @@ test('người ngoài không đọc được nợ của A-B', async () => {
   await assertFails(getDoc(doc(db('C'), 'debts', 'A_B')));
   await assertSucceeds(getDoc(doc(db('B'), 'debts', 'A_B')));
 });
+test('thành viên đọc được khoản chi và nghĩa vụ guest, người ngoài bị chặn', async () => {
+  await seedOpenSession();
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const d = ctx.firestore();
+    await setDoc(doc(d, 'sessions', 'S1', 'expenses', 'E1'), { amount: 100 });
+    await setDoc(doc(d, 'sessions', 'S1', 'guestObligations', 'G1'), { amount: 50 });
+  });
+  await assertSucceeds(getDoc(doc(db('B'), 'sessions', 'S1', 'expenses', 'E1')));
+  await assertSucceeds(getDoc(doc(db('B'), 'sessions', 'S1', 'guestObligations', 'G1')));
+  await assertFails(getDoc(doc(db('Z'), 'sessions', 'S1', 'expenses', 'E1')));
+  await assertFails(getDoc(doc(db('Z'), 'sessions', 'S1', 'guestObligations', 'G1')));
+});
+
+test('client không thể ghi khoản chi hoặc nghĩa vụ guest trực tiếp', async () => {
+  await seedOpenSession();
+  const d = db('A');
+  await assertFails(setDoc(doc(d, 'sessions', 'S1', 'expenses', 'E1'), {
+    description: 'Lunch', amount: 100, payerId: 'A', participantIds: ['A'],
+  }));
+  await assertFails(setDoc(doc(d, 'sessions', 'S1', 'guestObligations', 'G1'), {
+    payerId: 'A', guestMemberId: 'G', amount: 100, status: 'pending',
+  }));
+});
+
+test('client không thể sửa total hoặc accounting outputs', async () => {
+  await seedOpenSession();
+  await assertFails(updateDoc(doc(db('A'), 'sessions', 'S1'), {
+    totalAmount: 1, paidByMember: { A: 1 },
+  }));
+  await assertFails(updateDoc(doc(db('A'), 'sessions', 'S1'), {
+    accounting: { accountNetPositions: { A: 999999 } },
+  }));
+});
+
 test('không sửa tổng bill / phần chia sau khi tạo', async () => {
   await seedOpenSession();
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -234,19 +267,19 @@ test('không sửa số tiền payment', async () => {
 
 // ── Luồng hợp lệ khác (đảm bảo rules không chặn nhầm) ───────────────────────
 
-test('đóng phiên lần 2 cộng dồn vào khoản nợ có sẵn', async () => {
+test('không cộng nợ trực tiếp vào khoản nợ có sẵn từ client', async () => {
   await seedDebt(-300000);
   await seedOpenSession('S2');
-  await assertSucceeds(closeBatch(db('A'), { sid: 'S2', entryAmount: 50000, balanceDelta: -50000 }).commit());
+  await assertFails(closeBatch(db('A'), { sid: 'S2', entryAmount: 50000, balanceDelta: -50000 }).commit());
 });
-test('chiều nợ ngược: A nợ B thì balance tăng', async () => {
+test('client không thể tự ghi debt chiều ngược hoặc sai dấu', async () => {
   await seedDebt(0);
   await seedOpenSession('S2', { creatorId: 'B' });
-  await assertSucceeds(closeBatch(db('B'), { sid: 'S2', from: 'A', to: 'B',
+  await assertFails(closeBatch(db('B'), { sid: 'S2', from: 'A', to: 'B',
     entryAmount: 120000, balanceDelta: 120000 }).commit());
   await seedOpenSession('S3', { creatorId: 'B' });
   await assertFails(closeBatch(db('B'), { sid: 'S3', from: 'A', to: 'B',
-    entryAmount: 120000, balanceDelta: -120000 }).commit()); // sai dấu
+    entryAmount: 120000, balanceDelta: -120000 }).commit());
 });
 test('A (userA) là con nợ cũng báo chuyển & được xác nhận', async () => {
   await seedDebt(200000); // A nợ B 200k
@@ -262,14 +295,14 @@ test('A (userA) là con nợ cũng báo chuyển & được xác nhận', async 
   c.update(doc(dB, 'debts', 'A_B'), { balance: increment(-200000), pendingPaymentId: deleteField(), updatedAt: serverTimestamp() });
   await assertSucceeds(c.commit());
 });
-test('creator đánh dấu khách đã trả (kể cả sau khi đóng phiên)', async () => {
+test('guest status cannot be client-edited after close; collection uses callable', async () => {
   await seedOpenSession('S4', { status: 'closed' });
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(doc(ctx.firestore(), 'sessions', 'S4', 'members', 'G1'), {
       userId: null, displayName: 'Khách', isGuest: true, amountOwed: 100000, amountPaid: 0, status: 'pending',
     });
   });
-  await assertSucceeds(updateDoc(doc(db('A'), 'sessions', 'S4', 'members', 'G1'), { status: 'paid' }));
+  await assertFails(updateDoc(doc(db('A'), 'sessions', 'S4', 'members', 'G1'), { status: 'paid' }));
   await assertFails(updateDoc(doc(db('B'), 'sessions', 'S4', 'members', 'G1'), { status: 'paid' }));
 });
 test('xóa phiên đang mở (kèm member) được; người khác thì không', async () => {

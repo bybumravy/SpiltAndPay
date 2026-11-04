@@ -1,46 +1,113 @@
 # Kiến trúc và logic công nợ
 
-## Thành phần runtime
+## Tổng quan runtime
 
-`lib/main.dart` khởi tạo Firebase rồi chạy ứng dụng Flutter trong Riverpod `ProviderScope`. Firebase Auth và Firestore được cung cấp qua `lib/core/firebase_providers.dart`. Màn hình gọi repository để đọc/ghi dữ liệu; model chuyển đổi dữ liệu Firestore qua `fromMap`/`toMap`.
+`lib/main.dart` khởi tạo Firebase rồi chạy ứng dụng trong Riverpod `ProviderScope`. `AuthGate` theo dõi Firebase Auth và hồ sơ Firestore để điều phối:
 
-## Dữ liệu phiên hiện tại
+1. Chưa đăng nhập → màn hình đăng nhập email/mật khẩu hoặc Google.
+2. Đã đăng nhập nhưng chưa có QR nhận tiền → onboarding VietQR.
+3. Hồ sơ đã có QR → màn hình chính gồm Phiên, Công nợ và Hồ sơ.
 
-`Session` lưu creator, tên phiên, một `totalAmount`, chế độ chia, trạng thái, danh sách UID thành viên có tài khoản và thời gian. Thành viên lưu `amountOwed`, `amountPaid`, guest/account identity và trạng thái. Code hiện tại chưa có model hay persistence cho từng khoản chi.
+Cấu hình Firebase sinh bởi FlutterFire hiện chỉ trả về options cho Android; các nền tảng khác ném `UnsupportedError`.
 
-Màn tạo phiên hiện hỗ trợ chia đều hoặc chia tuỳ chỉnh; nhiều thành viên có tài khoản có thể được ghi nhận là đã ứng tiền. Có thể thêm guest, nhưng UI hiện tại không cho guest làm người ứng tiền. Chia đều dùng `computeShares`; phần dư đồng được cộng vào phần người tạo.
+## Các tầng chính
 
-## Đóng phiên và cộng dồn nợ
+| Tầng | Trách nhiệm |
+|---|---|
+| `lib/screens/` | UI và điều phối tương tác người dùng. |
+| `lib/models/` | Model ứng dụng và chuyển đổi dữ liệu Firestore. |
+| `lib/repositories/` | Query, stream, batch và transaction Firestore. |
+| `lib/core/` | Chia tiền, settlement, tối ưu nợ, OCR, VietQR, ảnh và dịch vụ hạ tầng. |
 
-`SessionRepository.closeSession` dùng Firestore transaction để ngăn đóng phiên lặp lại và kiểm tra tổng `amountOwed` đúng bằng bill. Sau đó gọi `settleSession`, ghi từng lượt chuyển thành entry bất biến theo phiên, cộng/trừ vào balance của cặp UID, đóng phiên và cập nhật trạng thái thành viên.
+Riverpod cung cấp Firebase Auth, Firestore, repository và stream theo UID/session/debt.
 
-`settleSession` tính vị thế ròng: `amountPaid - amountOwed`. Giá trị dương nghĩa là được nhận; âm nghĩa là phải trả. Phiên cũ không có `amountPaid` (tổng bằng 0) được coi là creator đã ứng toàn bộ. Guest không vào sổ nợ tài khoản; phần guest phải trả được trừ khỏi vị thế ròng của creator, người này tự thu guest ở ngoài.
+## Mô hình dữ liệu Firestore
 
-`simplifyDebts` tìm số lượt chuyển tối thiểu bằng subset dynamic programming cho tối đa 18 người có số dư khác 0. Với nhóm lớn hơn, dùng greedy; tiền vẫn cân bằng nhưng số lượt không đảm bảo tối thiểu.
+### `users/{uid}`
 
-Balance của mỗi cặp được lưu cộng dồn trong `debts/{id}` với ID từ hai UID đã sắp xếp. Số dư dương nghĩa userA nợ userB; âm là userB nợ userA. Mỗi phiên đóng thêm một entry trong `entries/{sessionId}`; khoản trả được xác nhận sẽ cập nhật balance theo payment. Đây là bù trừ nợ ròng theo từng cặp qua nhiều phiên.
+Lưu tên, email, `emailLower`, avatar và URL ảnh QR nhận tiền. Người dùng đã đăng nhập có thể đọc hồ sơ để tìm bạn; chỉ chính chủ được ghi document hồ sơ.
 
-## Trả nợ hiện tại
+`users/{uid}/contacts/{contactId}` lưu snapshot tên/avatar và thời điểm tương tác. Chủ danh bạ có thể đọc/xóa; rules còn cho phép chính contact ghi thông tin của họ để hỗ trợ kết bạn hai chiều.
 
-Thành viên có tài khoản bấm “Tôi đã chuyển”; repository kiểm tra trong transaction rằng họ còn nợ và chưa có payment chờ, rồi tạo payment `pending` cho toàn bộ số nợ hiện tại. Chủ nợ xác nhận payment đang chờ; transaction đánh dấu payment `confirmed` và giảm balance đúng số payment. Trả một phần chưa được hỗ trợ qua luồng này.
+### `sessions/{sessionId}`
 
-Guest được người tạo theo dõi trong phiên. Hiện người tạo có thể nhắc guest qua QR/chia sẻ và tự đánh dấu “Đã thu” trong chi tiết phiên; guest không tạo payment hoặc nợ tài khoản.
+`Session` lưu creator, tiêu đề, một `totalAmount`, `splitMode`, trạng thái, danh sách UID thành viên và timestamp. `sessions/{sessionId}/members/{memberId}` lưu identity snapshot, `amountOwed`, `amountPaid`, trạng thái và thời điểm trả.
 
-## Firestore và giới hạn tin cậy
+Creator tạo session và members trong batch. Khi phiên còn mở, creator có thể đổi tiêu đề hoặc xóa session cùng members. Đóng phiên cập nhật session, entries và balances trong một transaction.
 
-`firestore.rules` kiểm soát quyền truy cập và các thay đổi balance: cộng nợ phải khớp entry mới của phiên; xác nhận trả phải khớp payment đang chờ. Rules yêu cầu payment bằng đúng số đang nợ và các entry/payment bất biến về số tiền. Theo `NOTES.md`, dự án chưa có Cloud Functions tự tính lại phần chia phía server; không nên xem phân bổ do client gửi là phép tính đã được máy chủ xác minh độc lập.
+Code hiện **không có** model, subcollection hoặc field cho danh sách khoản chi chi tiết.
 
-## Logic đã duyệt cho tương lai: khoản chi chi tiết (chưa triển khai)
+### `debts/{userA_userB}`
 
-Đây là mục tiêu sản phẩm đã được người dùng duyệt, không phải hành vi code hiện tại:
+Document ID được tạo từ hai UID đã sắp xếp; `userA < userB`. `balance > 0` nghĩa userA nợ userB, `balance < 0` nghĩa userB nợ userA.
 
-- Khi tạo phiên, người dùng chọn một trong hai cách: chỉ nhập tổng bill (không cần nhập từng khoản), hoặc lưu nhiều khoản chi tiết. Với phiên chi tiết, mỗi khoản có mô tả, số tiền, người trả và người tham gia.
-- Người tạo phiên là người trả mặc định cho từng khoản; có thể chọn người trả khác riêng cho mỗi khoản.
-- Chỉ có chia đều cho những người tham gia được chọn. Phần dư đồng phải được phân bổ chính xác sao cho tổng phần chia bằng đúng số tiền khoản.
-- Guest có thể tham gia chia khoản chi như thành viên khác. Phần guest phải trả được hiển thị như một khoản cần thu trong sổ nợ của người tạo phiên. Guest không có tài khoản/nút “Tôi đã chuyển”; khi người tạo thực nhận tiền mặt hoặc khoản chuyển riêng bên ngoài ứng dụng, người tạo tự xác nhận đã nhận ngay trong sổ nợ. Việc xác nhận này đánh dấu nghĩa vụ guest đã thu, không tạo payment hoặc balance cộng dồn giữa hai UID tài khoản.
-- Chế độ chỉ nhập tổng bill: cho phép nhập tổng mà không khai báo từng khoản; vẫn dùng phân bổ thành viên để xác định `amountPaid`/`amountOwed` và chốt phiên theo flow tương thích hiện tại.
-- Chế độ chi tiết: cộng dồn từ các khoản thành tổng `amountPaid` và `amountOwed` theo thành viên; tổng tiền và tổng phần chia phải khớp. Sau đó dùng lại `settleSession`, `simplifyDebts` và cơ chế cộng dồn balance cặp hiện tại.
-- Tài khoản có app tiếp tục dùng luồng “Tôi đã chuyển” → chủ nợ xác nhận.
-- Phiên cũ chỉ có tổng tiền/phần chia tiếp tục đọc và chốt được như trước.
+- `entries/{sessionId}`: lượt chuyển bất biến sinh khi đóng phiên.
+- `payments/{paymentId}`: lần báo chuyển tiền, từ `pending` sang `confirmed`.
+- `pendingPaymentId`: khóa một payment đang chờ cho cặp nợ.
 
-Trước khi triển khai persistence mới, cần cập nhật Firestore Rules và kiểm thử đồng bộ với schema mới; không được nới quyền cho client ghi tuỳ ý vào khoản nợ.
+Guest không có UID và không được lưu vào `debts` hoặc `payments`.
+
+## Tạo và chia phiên
+
+Màn tạo phiên nhận tổng bill bằng nhập tay hoặc OCR. OCR dùng Google ML Kit trên thiết bị, ưu tiên số cạnh từ khóa tổng tiền; nếu không có từ khóa thì gợi ý số hợp lệ lớn nhất và yêu cầu người dùng kiểm tra.
+
+`computeShares` hỗ trợ:
+
+- Chia đều: phần dư đồng được cộng vào creator.
+- Chia tùy chỉnh: số nhập tay được giữ nguyên; phần còn lại chia đều cho các thành viên chưa nhập và creator.
+
+Khi bật nhiều người ứng tiền, thành viên có tài khoản nhập `amountPaid`; creator nhận `totalAmount - othersPaid`. Guest không được ứng tiền.
+
+## Đóng phiên và settlement
+
+`SessionRepository.closeSession` thực hiện trong transaction:
+
+1. Từ chối nếu phiên đã đóng.
+2. Kiểm tra tổng `amountOwed` bằng `totalAmount`.
+3. Gọi `settleSession` để tính vị thế ròng.
+4. Ghi session thành `closed`, tạo entry theo phiên và cộng dồn balance từng cặp.
+5. Chuyển thành viên tài khoản sang trạng thái ledger/paid; guest giữ trạng thái cần thu.
+
+Với dữ liệu mới, `settleSession` yêu cầu tổng `amountPaid` bằng tổng `amountOwed`. Với phiên cũ có tổng `amountPaid == 0`, creator được coi là đã ứng toàn bộ bill.
+
+Mỗi tài khoản có vị thế `amountPaid - amountOwed`. Phần guest phải chịu được trừ khỏi vị thế creator vì creator tự thu guest ngoài sổ nợ tài khoản.
+
+`simplifyDebts` tìm số lượt chuyển tối thiểu bằng subset dynamic programming khi có tối đa 18 số dư khác 0. Nhóm lớn hơn dùng greedy: vẫn bảo toàn tiền nhưng không bảo đảm số lượt tối thiểu.
+
+## Thanh toán công nợ
+
+Con nợ bấm “Tôi đã chuyển” để tạo payment `pending` đúng bằng toàn bộ số dư đang nợ. Transaction từ chối khi balance đã hết hoặc đã có payment chờ. Chủ nợ bấm “Đã nhận”; payment chuyển sang `confirmed` và balance giảm đúng amount đã lưu.
+
+Luồng hiện tại không hỗ trợ trả một phần hoặc từ chối payment trong UI.
+
+Guest được nhắc và đánh dấu “Đã thu” tại màn hình chi tiết phiên. Mục tiêu đưa nghĩa vụ guest vào giao diện Công nợ thuộc thiết kế khoản chi chi tiết tương lai, chưa tồn tại trong code hiện tại.
+
+## VietQR, ảnh và chia sẻ
+
+- Onboarding kiểm tra ảnh tối đa 5 MB, đọc QR trên thiết bị, xác minh payload EMVCo/NAPAS và CRC trước khi upload lên Cloudinary.
+- `staticQrPayloadProvider` tải ảnh QR của chủ nợ và đọc payload trên thiết bị.
+- `buildDynamicVietQr` chuyển mã tĩnh thành mã động, thêm số tiền và nội dung không dấu tối đa 25 ký tự, rồi tính lại CRC16-CCITT.
+- Nếu không đọc được payload tĩnh, UI dùng ảnh QR gốc làm fallback.
+- QR có thể được render thành PNG, lưu vào album SplitPay hoặc ghép thành thẻ thanh toán để chia sẻ.
+
+Không có Cloud Function trong repository; tính chia và settlement chạy ở client.
+
+## Biên bảo mật Firestore
+
+`firestore.rules` giới hạn các mutation quan trọng:
+
+- Chỉ creator tạo session hợp lệ; chỉ thành viên tài khoản đọc session.
+- Tiền trong session/member không được sửa sau khi tạo; creator chỉ đổi tiêu đề, đóng hoặc xóa phiên đang mở.
+- Debt ID và thứ tự participants phải đúng quy ước.
+- Balance chỉ thay đổi khi khớp entry mới của phiên đang được đóng hoặc payment đang được xác nhận.
+- Entry phải thuộc thành viên phiên, có số tiền dương không vượt bill và bất biến sau khi tạo.
+- Payment pending phải đúng toàn bộ số đang nợ; chỉ chủ nợ xác nhận và không được sửa amount.
+- Debt, entry và payment không được xóa qua client.
+
+Rules bảo vệ liên kết giữa balance và chứng từ, nhưng không tính lại độc lập toàn bộ phân bổ `amountOwed`/`amountPaid` do client gửi. Khi thêm khoản chi chi tiết phải cập nhật model, repository, rules và tests đồng bộ.
+
+## Tham chiếu
+
+- [Tổng quan và PDR](project-overview-pdr.md)
+- [Cấu trúc code và tiêu chuẩn](code-standards.md)
+- [Thiết lập và kiểm thử](setup.md)

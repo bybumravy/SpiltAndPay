@@ -8,11 +8,20 @@ import '../../repositories/session_repository.dart';
 import '../session/create_session_screen.dart';
 import '../session/session_detail_screen.dart';
 
-class SessionsTab extends ConsumerWidget {
+enum _SessionFilter { all, open, closed }
+
+class SessionsTab extends ConsumerStatefulWidget {
   const SessionsTab({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SessionsTab> createState() => _SessionsTabState();
+}
+
+class _SessionsTabState extends ConsumerState<SessionsTab> {
+  _SessionFilter _filter = _SessionFilter.all;
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.watch(authProvider).currentUser;
     if (user == null) return const SizedBox.shrink();
 
@@ -33,7 +42,8 @@ class SessionsTab extends ConsumerWidget {
                 Text('Lỗi: $e', textAlign: TextAlign.center),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: () => ref.refresh(userSessionsProvider(user.uid)),
+                  onPressed: () =>
+                      ref.invalidate(userSessionsProvider(user.uid)),
                   icon: const Icon(Icons.refresh),
                   label: const Text('Thử lại'),
                 ),
@@ -42,29 +52,46 @@ class SessionsTab extends ConsumerWidget {
           ),
         ),
         data: (sessions) {
-          if (sessions.isEmpty) {
-            return RefreshIndicator(
-              onRefresh: () async =>
-                  ref.refresh(userSessionsProvider(user.uid)),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 120),
-                  Center(child: Text('Chưa có phiên nào')),
-                ],
-              ),
-            );
-          }
+          final filtered = switch (_filter) {
+            _SessionFilter.all => sessions,
+            _SessionFilter.open =>
+              sessions.where((s) => s.status == SessionStatus.open).toList(),
+            _SessionFilter.closed =>
+              sessions.where((s) => s.status == SessionStatus.closed).toList(),
+          };
           return RefreshIndicator(
             onRefresh: () async =>
-                ref.refresh(userSessionsProvider(user.uid)),
-            child: ListView.builder(
+                ref.invalidate(userSessionsProvider(user.uid)),
+            child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              itemCount: sessions.length,
-              itemBuilder: (_, i) => _SessionTile(
-                session: sessions[i],
-                currentUid: user.uid,
-              ),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final filter in _SessionFilter.values)
+                        ChoiceChip(
+                          label: Text(switch (filter) {
+                            _SessionFilter.all => 'Tất cả',
+                            _SessionFilter.open => 'Đang mở',
+                            _SessionFilter.closed => 'Đã đóng',
+                          }),
+                          selected: _filter == filter,
+                          onSelected: (_) => setState(() => _filter = filter),
+                        ),
+                    ],
+                  ),
+                ),
+                if (filtered.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 100),
+                    child: Center(child: Text('Chưa có phiên nào')),
+                  )
+                else
+                  for (final session in filtered)
+                    _SessionTile(session: session, currentUid: user.uid),
+              ],
             ),
           );
         },
@@ -121,7 +148,7 @@ class _SessionTile extends ConsumerWidget {
           const SnackBar(content: Text('Đã xoá phiên thành công')),
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Xoá phiên thất bại. Thử lại.')),
@@ -134,28 +161,30 @@ class _SessionTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isOpen = session.status == SessionStatus.open;
     final isCreator = session.creatorId == currentUid;
+    final membersAsync = ref.watch(sessionMembersProvider(session.sessionId));
 
     return ListTile(
       title: Text(session.title),
-      subtitle: Text(formatVnd(session.totalAmount)),
+      subtitle: Text(
+        '${formatVnd(session.totalAmount)} · ${membersAsync.when(data: (members) => '${members.length} thành viên', loading: () => 'Đang tải thành viên…', error: (_, _) => 'Không tải được thành viên')}',
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Chip(
-            label: Text(isOpen ? 'Đang mở' : 'Đã đóng',
-                style: const TextStyle(fontSize: 11)),
+            label: Text(
+              isOpen ? 'Đang mở' : 'Đã đóng',
+              style: const TextStyle(fontSize: 11),
+            ),
             backgroundColor: isOpen ? Colors.green[50] : Colors.grey[200],
             side: BorderSide(color: isOpen ? Colors.green : Colors.grey),
             padding: EdgeInsets.zero,
           ),
-          // Phiên đã đóng đã ghi nợ vào sổ nên không được xoá.
           if (isCreator && isOpen)
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, size: 20),
               onSelected: (val) {
-                if (val == 'delete') {
-                  _confirmDelete(context, ref);
-                }
+                if (val == 'delete') _confirmDelete(context, ref);
               },
               itemBuilder: (_) => [
                 const PopupMenuItem(
@@ -175,10 +204,8 @@ class _SessionTile extends ConsumerWidget {
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => SessionDetailScreen(
-            session: session,
-            currentUid: currentUid,
-          ),
+          builder: (_) =>
+              SessionDetailScreen(session: session, currentUid: currentUid),
         ),
       ),
     );

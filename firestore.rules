@@ -58,16 +58,30 @@ service cloud.firestore {
                        request.resource.data.totalAmount is int &&
                        request.resource.data.totalAmount > 0;
 
+      // Only the trusted close callable may transition sessions to closed.
       allow update: if isSignedIn() &&
                        request.auth.uid == resource.data.creatorId &&
-                       (onlyChanges(['title']) ||
-                        (resource.data.status == 'open' &&
-                         request.resource.data.status == 'closed' &&
-                         onlyChanges(['status', 'closedAt'])));
+                       resource.data.status == 'open' &&
+                       request.resource.data.status == 'open' &&
+                       onlyChanges(['title']);
 
       allow delete: if isSignedIn() &&
                        request.auth.uid == resource.data.creatorId &&
                        resource.data.status == 'open';
+
+      // Itemized expenses and guest obligations are readable by session
+      // members; only trusted Admin SDK callables may write them.
+      match /expenses/{expenseId} {
+        allow read: if isSignedIn() &&
+                       request.auth.uid in get(sessionPath(sessionId)).data.memberUserIds;
+        allow write: if false;
+      }
+
+      match /guestObligations/{obligationId} {
+        allow read: if isSignedIn() &&
+                       request.auth.uid in get(sessionPath(sessionId)).data.memberUserIds;
+        allow write: if false;
+      }
 
       // members: thành viên đọc. Creator tạo cùng lúc với phiên (số tiền hợp lệ,
       // không vượt tổng bill). Sau đó chỉ đổi được status/paidAt, không sửa tiền.
@@ -84,9 +98,8 @@ service cloud.firestore {
                          request.resource.data.amountPaid >= 0 &&
                          request.resource.data.amountPaid <= getAfter(sessionPath(sessionId)).data.totalAmount;
 
-        allow update: if isSignedIn() &&
-                         get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&
-                         onlyChanges(['status', 'paidAt']);
+        // Accounting status is written by trusted callables only.
+        allow update: if false;
 
         allow delete: if isSignedIn() &&
                          get(sessionPath(sessionId)).data.creatorId == request.auth.uid &&

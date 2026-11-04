@@ -2,55 +2,85 @@
 
 ## Sản phẩm
 
-SplitPay là ứng dụng Flutter hỗ trợ ghi nhận chi phí nhóm, tính phần mỗi thành viên cần chịu và quản lý việc trả nợ. Backend hiện dùng Firebase Authentication và Cloud Firestore.
+SplitPay là ứng dụng Flutter dành cho Android, hỗ trợ ghi nhận chi phí nhóm, tính phần mỗi thành viên cần chịu, tối ưu lượt chuyển và quản lý việc trả nợ. Backend hiện dùng Firebase Authentication và Cloud Firestore; ảnh QR nhận tiền được lưu qua Cloudinary.
 
-## Khả năng hiện tại trong code
+## Phạm vi đã triển khai
 
-- Tạo phiên với một tổng bill, thêm thành viên có tài khoản hoặc khách, chia đều hoặc chia tuỳ chỉnh.
-- Ghi nhận một hay nhiều thành viên có tài khoản đã ứng tiền cho bill phiên.
-- Đóng phiên để tính lượt chuyển giữa thành viên, ghi nợ cộng dồn theo cặp UID.
-- Thành viên có tài khoản báo đã chuyển toàn bộ nợ; chủ nợ xác nhận đã nhận.
-- Người tạo quản lý việc thu tiền khách ngoài sổ nợ tài khoản.
-- Hỗ trợ tính năng QR VietQR, chia sẻ thông tin thanh toán và OCR bill trên thiết bị.
+### Tài khoản và bạn bè
 
-Xem [kiến trúc và logic công nợ](system-architecture.md) để biết chi tiết và giới hạn hiện tại.
+- Đăng ký/đăng nhập bằng email và mật khẩu hoặc đăng nhập Google.
+- Người dùng phải có ảnh VietQR hợp lệ trước khi vào màn hình chính; có thể đổi ảnh trong hồ sơ.
+- Tìm người dùng theo email chính xác hoặc quét QR chứa UID.
+- Lưu danh bạ gần đây trong `users/{uid}/contacts`; luồng kết bạn cố gắng cập nhật hai chiều.
+
+### Phiên chia tiền
+
+- Tạo phiên từ một tổng bill; tổng tiền có thể nhập tay hoặc lấy từ OCR hóa đơn trên thiết bị.
+- Thêm thành viên có tài khoản từ danh bạ hoặc thêm guest bằng tên.
+- Chia đều hoặc nhập số tùy chỉnh cho thành viên; phần chưa nhập được chia từ số tiền còn lại.
+- Ghi nhận nhiều thành viên có tài khoản cùng ứng tiền. Creator được tính là người ứng phần còn lại của bill.
+- Creator có thể đổi tên hoặc xóa phiên khi còn mở. Đóng phiên là thao tác một chiều và ghi công nợ.
+
+### Công nợ và thanh toán
+
+- Khi đóng phiên, hệ thống tính vị thế `amountPaid - amountOwed`, tối ưu lượt chuyển và cộng dồn balance theo cặp UID.
+- Mỗi lượt chuyển của phiên được lưu thành entry bất biến; balance không được sửa tự do.
+- Con nợ báo đã chuyển toàn bộ số dư đang nợ; chủ nợ xác nhận để cập nhật balance.
+- Chưa hỗ trợ thanh toán một phần hoặc từ chối payment trong UI hiện tại.
+
+### QR, chia sẻ và guest
+
+- Ảnh QR onboarding phải là VietQR NAPAS hợp lệ; người dùng có thể đổi ảnh nhận tiền từ hồ sơ.
+- App có thể đọc VietQR tĩnh, tạo mã động có sẵn số tiền/nội dung và tính lại CRC ngay trên thiết bị.
+- QR hoặc thẻ thanh toán có thể được lưu vào thư viện ảnh và chia sẻ qua ứng dụng khác.
+- Guest không có UID nên không xuất hiện trong collection `debts` và không tạo payment.
+- **Hành vi hiện tại:** creator nhắc guest và đánh dấu “Đã thu” trong chi tiết phiên, không phải tab Công nợ.
 
 ## Ràng buộc hiện tại
 
-| Khu vực | Hành vi/giới hạn hiện tại |
+| Khu vực | Hành vi hoặc giới hạn |
 |---|---|
-| Tiền tệ | Số nguyên VND; phép chia cần bảo toàn tổng tiền. |
-| Phiên | Schema hiện lưu một tổng tiền và số phải chịu/đã ứng ở cấp thành viên. |
-| Chia | Tạo phiên hiện hỗ trợ chia đều và tuỳ chỉnh. |
-| Đóng phiên | Kiểm tra tổng phần phải chịu khớp bill; ghi entry và balance trong transaction. |
-| Nợ | Balance cộng dồn theo cặp tài khoản qua các phiên. |
-| Thanh toán tài khoản | Payment chờ xác nhận cho toàn bộ số nợ hiện tại; chưa hỗ trợ trả một phần. |
-| Khách | Được tính trong phiên; người tạo tự theo dõi và xác nhận đã thu, không ghi nợ tài khoản cho khách. |
+| Nền tảng | Cấu hình Firebase trong code hiện chỉ hỗ trợ Android. |
+| Tiền tệ | Số nguyên VND; mọi phép chia và quyết toán phải bảo toàn tổng. |
+| Phiên | Lưu một `totalAmount`; chưa có model hoặc persistence cho từng khoản chi. |
+| Chia | Chia đều hoặc tùy chỉnh ở cấp thành viên. |
+| Người ứng | Chỉ thành viên có tài khoản được ứng tiền; guest không được chọn làm người trả. |
+| Đóng phiên | Tổng `amountOwed` phải khớp bill; với dữ liệu mới, tổng `amountPaid` phải khớp tổng phải chịu. |
+| Tương thích | Phiên cũ có tổng `amountPaid == 0` được hiểu là creator đã ứng toàn bộ bill. |
+| Nợ | Balance cộng dồn theo cặp tài khoản qua các phiên và được bảo vệ bằng entry/payment liên quan. |
+| Thanh toán | Payment chờ xác nhận cho toàn bộ số nợ hiện tại; chưa hỗ trợ trả một phần. |
+| Guest | Được tính trong phiên; creator theo dõi, nhắc và xác nhận thu tại chi tiết phiên. |
 
-## Thiết kế khoản chi đã duyệt — chưa triển khai
+## Thiết kế khoản chi chi tiết đã duyệt — chưa triển khai
 
-Các yêu cầu sau được duyệt cho công việc tiếp theo, nhưng model/UI/Firestore hiện tại chưa triển khai:
+Phần này là yêu cầu cho công việc tiếp theo, không phải hành vi hiện có:
 
-1. Khi tạo phiên, người dùng chọn một trong hai cách ghi nhận: nhập duy nhất tổng bill (không cần khai báo từng khoản), hoặc nhập nhiều khoản chi tiết. Không bắt buộc mọi phiên phải có danh sách khoản chi.
-2. Ở chế độ tổng bill, không hiện form nhập từng khoản; phân bổ số phải chịu theo thành viên vẫn phải đủ để kiểm tra/chốt phiên như hiện tại.
-3. Ở chế độ chi tiết, mỗi khoản có mô tả, số tiền, người trả và danh sách người tham gia.
-2. Người tạo là người trả mặc định trên mỗi khoản; có thể chọn thành viên khác làm người trả cho riêng khoản đó.
-3. Mỗi khoản chia đều cho những người được chọn; không thêm chế độ chia tuỳ chỉnh từng khoản trong phạm vi đã thống nhất. Xử lý phần dư đồng phải giữ tổng chính xác.
-5. Guest được chọn tham gia chia như thành viên khác trong chế độ chi tiết. Nghĩa vụ guest hiển thị như khoản cần thu trong sổ nợ người tạo phiên; guest không có thao tác báo đã chuyển. Khi người tạo thực nhận tiền mặt hoặc chuyển khoản riêng ngoài app, người tạo tự xác nhận đã nhận ngay trong sổ nợ. Thành viên có tài khoản tiếp tục báo chuyển và chờ chủ nợ xác nhận theo luồng hiện tại.
-6. Ở chế độ chi tiết, tổng tiền phiên, số đã ứng và số phải chịu được cộng từ các khoản; khi đóng phiên, tổng hợp được đưa qua logic settle/simplify và cộng dồn balance hiện tại. Ở chế độ chỉ nhập tổng bill, dùng tổng cùng phân bổ thành viên được nhập như flow hiện hành.
-7. Phiên cũ chỉ có tổng và số chia thành viên vẫn đọc/chốt nợ bình thường.
+1. Khi tạo phiên, người dùng chọn chỉ nhập tổng bill hoặc nhập danh sách khoản chi chi tiết. Danh sách khoản không bắt buộc cho mọi phiên.
+2. Chế độ tổng bill giữ flow hiện tại: nhập tổng và phân bổ `amountPaid`/`amountOwed` ở cấp thành viên.
+3. Chế độ chi tiết lưu mỗi khoản gồm mô tả, số tiền, người trả và danh sách người tham gia.
+4. Creator là người trả mặc định của từng khoản; có thể chọn thành viên có tài khoản khác làm người trả riêng cho khoản đó.
+5. Mỗi khoản chỉ chia đều cho những người được chọn; phần dư đồng phải được phân bổ sao cho tổng phần chia bằng đúng tiền khoản.
+6. Guest được chọn tham gia khoản như thành viên khác. Mục tiêu UI tương lai là đưa nghĩa vụ guest vào khu vực cần thu của creator trong giao diện Công nợ; creator tự xác nhận sau khi nhận tiền bên ngoài app. Việc này không tạo balance hoặc payment giữa hai UID.
+7. Tổng tiền phiên, `amountPaid` và `amountOwed` được cộng từ các khoản rồi đưa qua logic settlement và balance hiện tại.
+8. Phiên cũ và phiên mới chỉ nhập tổng bill phải tiếp tục đọc, hiển thị và chốt được.
+9. Firestore Rules và tests phải bảo vệ schema mới cùng các bất biến tiền nợ.
 
 ### Tiêu chí nghiệm thu dự kiến
 
-- Tổng phần chia từng khoản bằng chính xác tiền khoản đó sau xử lý phần dư.
-- Tổng số đã ứng và tổng số phải chịu khớp tổng chi.
-- Nhiều người trả khác nhau trên các khoản được phản ánh chính xác vào tổng `amountPaid`.
-- Thành viên chỉ chịu phần từ những khoản họ được chọn tham gia.
-- Guest tham gia chia; nghĩa vụ thu hiển thị trong sổ nợ creator, người tạo tự xác nhận đã nhận tiền bên ngoài app; không sinh payment hoặc balance cặp UID tài khoản cho guest.
-- Không thay đổi sai logic settlement, balance cộng dồn và xác nhận payment hiện hữu.
-- Cả phiên mới ở chế độ chỉ nhập tổng bill, phiên mới có khoản chi chi tiết và phiên cũ không có items đều mở/hiển thị/chốt được đúng dữ liệu.
-- Firestore Rules, repository và tests bảo vệ schema mới và các bất biến tiền nợ.
+- Tổng phần chia từng khoản bằng chính xác tiền khoản đó.
+- Tổng đã ứng và tổng phải chịu bằng tổng chi.
+- Nhiều người trả trên các khoản được tổng hợp đúng vào `amountPaid`.
+- Thành viên chỉ chịu phần của những khoản họ tham gia.
+- Guest không sinh payment hoặc balance cặp UID; creator có luồng cần thu rõ ràng.
+- Settlement, balance cộng dồn và xác nhận payment hiện hữu không bị thay đổi sai.
+- Phiên chỉ nhập tổng, phiên có khoản chi tiết và dữ liệu cũ đều tương thích.
+- Rules, repository và tests bảo vệ schema và các bất biến tiền.
 
 ## Ngoài phạm vi đã duyệt
 
-Chưa có quyết định thêm chia tuỳ chỉnh từng khoản, thanh toán một phần, nhắc nợ tự động hoặc xác minh phân bổ độc lập bằng Cloud Functions. Không coi các hạng mục này là yêu cầu được duyệt.
+Chưa có quyết định triển khai chia tùy chỉnh từng khoản, thanh toán một phần, nhắc nợ tự động hoặc tính lại phân bổ độc lập bằng Cloud Functions.
+
+## Tham chiếu
+
+- [Kiến trúc hệ thống](system-architecture.md)
+- [Roadmap](roadmap.md)

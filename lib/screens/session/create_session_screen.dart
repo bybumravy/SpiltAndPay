@@ -3,11 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forui/forui.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/bill_ocr.dart';
+import '../../core/expense_allocation.dart';
 import '../../core/money.dart';
 import '../../models/app_user.dart';
 import '../../models/session.dart';
@@ -26,67 +28,85 @@ class CreateSessionScreen extends ConsumerStatefulWidget {
 
 class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
   final _titleController = TextEditingController();
-  final _totalController = TextEditingController();
-
-  SessionSplitMode _splitMode = SessionSplitMode.equal;
+  static const SessionSplitMode _splitMode = SessionSplitMode.equal;
   bool _isSaving = false;
-  bool _isOcring = false;
-  bool _multiPayer = false; // có người khác (ngoài creator) cũng ứng tiền
-
-  // Danh sách thành viên thêm vào (ngoài creator).
+  int? _activeExpenseIndex;
   final List<_MemberEntry> _members = [];
+  final List<_ExpenseEntry> _expenses = [];
+
+  @override
+  void initState() {
+    super.initState();
+    final firstExpense = _ExpenseEntry(payerId: widget.creatorUid);
+    firstExpense.participantIds.add(widget.creatorUid);
+    _expenses.add(firstExpense);
+  }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _totalController.dispose();
+    for (final expense in _expenses) {
+      expense.dispose();
+    }
     super.dispose();
   }
 
-  // ── OCR ────────────────────────────────────────────────────────────────────
+  List<String> get _memberIds => [
+    widget.creatorUid,
+    ..._members.map((m) => m.memberId),
+  ];
 
-  Future<void> _pickAndOcr() async {
+  Set<String> get _guestIds =>
+      _members.where((m) => m.isGuest).map((m) => m.memberId).toSet();
+
+  List<_ExpenseEntry> get _validExpenses =>
+      _expenses.where((expense) => expense.amount > 0).toList();
+
+  SessionExpensePreview get _preview => previewSessionExpenses([
+    for (final expense in _validExpenses)
+      ExpenseDraft(
+        amount: expense.amount,
+        payerId: expense.payerId,
+        participantIds: expense.participantIds,
+      ),
+  ], guestMemberIds: _guestIds);
+
+  Future<void> _pickAndOcr(int index) async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
       imageQuality: 90,
     );
-    if (picked == null) return;
-
-    setState(() => _isOcring = true);
+    if (picked == null || !mounted) return;
+    setState(() => _activeExpenseIndex = index);
     try {
       final scan = await scanBill(File(picked.path));
-
+      if (!mounted) return;
       if (scan.total == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Không nhận ra số tiền nào từ ảnh.')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không nhận ra số tiền nào từ ảnh.')),
+        );
         return;
       }
-
-      if (mounted) {
-        _totalController.text = scan.total.toString();
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(scan.confident
-              ? 'Đã đọc tổng tiền: ${formatVnd(scan.total!)}. Kiểm tra lại nhé.'
-              : 'Không thấy dòng "Tổng cộng", tạm lấy số lớn nhất: '
-                  '${formatVnd(scan.total!)}. Hãy kiểm tra lại.'),
-        ));
-      }
-    } catch (e) {
+      setState(
+        () => _expenses[index].amountController.text = scan.total.toString(),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            scan.confident
+                ? 'Đã đọc tổng tiền: ${formatVnd(scan.total!)}. Kiểm tra lại nhé.'
+                : 'Không thấy dòng "Tổng cộng", tạm lấy số lớn nhất: ${formatVnd(scan.total!)}. Hãy kiểm tra lại.',
+          ),
+        ),
+      );
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('OCR thất bại. Nhập tay số tiền.')),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isOcring = false);
     }
   }
-
-  // ── Thêm thành viên ────────────────────────────────────────────────────────
 
   Future<void> _showAddMemberDialog() async {
     final alreadyAdded = _members
@@ -100,163 +120,215 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         currentUid: widget.creatorUid,
         alreadyAddedUids: alreadyAdded,
         onAddUser: (user) {
-          if (_members.any((m) => m.userId == user.uid)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('${user.name} đã có trong danh sách.')),
-            );
-            return;
-          }
-          setState(() => _members.add(_MemberEntry.fromUser(user)));
+          if (_members.any((m) => m.userId == user.uid)) return;
+          setState(() {
+            _members.add(_MemberEntry.fromUser(user));
+          });
         },
         onAddGuest: (name) {
-          setState(() => _members.add(_MemberEntry.guest(name)));
+          final guest = _MemberEntry.guest(name);
+          setState(() {
+            _members.add(guest);
+          });
         },
       ),
     );
-    _recalcCustomAmounts();
   }
 
-  void _removeMember(int index) {
-    setState(() => _members.removeAt(index));
-    _recalcCustomAmounts();
-  }
+  void _addExpense() => setState(() {
+    final expense = _ExpenseEntry(payerId: widget.creatorUid);
+    expense.participantIds.addAll(_memberIds);
+    _expenses.add(expense);
+    _activeExpenseIndex = _expenses.length - 1;
+  });
 
-  Future<void> _editGuestName(int index) async {
-    final member = _members[index];
-    if (!member.isGuest) return;
-    final ctrl = TextEditingController(text: member.name);
-    final newName = await showDialog<String>(
+  Future<void> _editExpenseDescription(int index) async {
+    setState(() => _activeExpenseIndex = index);
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sửa tên khách'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Tên mới'),
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          20,
+          16,
+          MediaQuery.of(context).viewInsets.bottom + 20,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Huỷ'),
+        child: FTextField(
+          control: FTextFieldControl.managed(
+            controller: _expenses[index].descriptionController,
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            child: const Text('Lưu'),
-          ),
-        ],
+          label: const Text('Mô tả khoản chi'),
+          hint: 'Ví dụ: Ăn tối, vé xem phim',
+          textInputAction: TextInputAction.done,
+          onSubmit: (_) => Navigator.pop(context),
+        ),
       ),
     );
-    if (newName != null && newName.isNotEmpty) {
-      setState(() {
-        _members[index] = _MemberEntry(
-          name: newName,
-          userId: member.userId,
-          isGuest: member.isGuest,
-        )..customAmount = member.customAmount;
-      });
-    }
+    if (mounted) setState(() {});
   }
 
-  void _recalcCustomAmounts() {
-    if (_splitMode == SessionSplitMode.custom) return;
-    // Với equal split, giữ nguyên — tính lại khi tạo phiên.
+  void _removeExpense(int index) {
+    if (_expenses.length <= 1) return;
+    final removed = _expenses.removeAt(index);
+    removed.dispose();
+    setState(() {
+      if (_activeExpenseIndex == index) {
+        _activeExpenseIndex = null;
+      } else if (_activeExpenseIndex != null && _activeExpenseIndex! > index) {
+        _activeExpenseIndex = _activeExpenseIndex! - 1;
+      }
+    });
   }
 
-  // ── Tạo phiên ───────────────────────────────────────────────────────────────
+  Future<void> _editParticipants(int index) async {
+    final expense = _expenses[index];
+    setState(() => _activeExpenseIndex = index);
+    final selected = Set<String>.from(expense.participantIds);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Ai tham gia khoản này?',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 12),
+                FSelectTileGroup<String>(
+                  control: FMultiValueControl.lifted(
+                    value: Set.unmodifiable(selected),
+                    onChange: (value) => setSheetState(() {
+                      selected
+                        ..clear()
+                        ..addAll(value);
+                    }),
+                  ),
+                  children: [
+                    FSelectTile<String>(
+                      title: const Text('Bạn (người tạo)'),
+                      value: widget.creatorUid,
+                    ),
+                    for (final member in _members)
+                      FSelectTile<String>(
+                        title: Text(member.name),
+                        value: member.memberId,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                FButton(
+                  onPress: () {
+                    setState(() {
+                      expense.participantIds
+                        ..clear()
+                        ..addAll(_memberIds.where(selected.contains));
+                    });
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Lưu người tham gia'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _choosePayer(int index) async {
+    final expense = _expenses[index];
+    setState(() => _activeExpenseIndex = index);
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(title: Text('Người trả khoản ${index + 1}')),
+            for (final memberId in _memberIds)
+              ListTile(
+                leading: Icon(
+                  expense.payerId == memberId
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                ),
+                title: Text(
+                  memberId == widget.creatorUid
+                      ? 'Bạn (người tạo)'
+                      : _members.firstWhere((m) => m.memberId == memberId).name,
+                ),
+                onTap: () {
+                  setState(() => expense.payerId = memberId);
+                  Navigator.pop(context);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _submit() async {
     final title = _titleController.text.trim();
-    final totalStr = _totalController.text.trim();
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nhập tên phiên.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Nhập tên phiên.')));
       return;
     }
-    final total = int.tryParse(totalStr);
-    if (total == null || total <= 0) {
+    if (_expenses.any((expense) => expense.amount <= 0)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nhập tổng tiền hợp lệ.')),
-      );
-      return;
-    }
-
-    // Validate custom: tổng nhập tay không được vượt quá total.
-    if (_splitMode == SessionSplitMode.custom) {
-      final customSum =
-          _members.fold<int>(0, (s, m) => s + (m.customAmount ?? 0));
-      if (customSum > total) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Tổng tuỳ chỉnh (${formatVnd(customSum)}) vượt quá tổng bill (${formatVnd(total)}).'),
-          ),
-        );
-        return;
-      }
-    }
-
-    // Validate số tiền đã ứng của các thành viên khác.
-    final othersPaid = _multiPayer
-        ? _members.fold<int>(0, (s, m) => s + (m.isGuest ? 0 : (m.paidAmount ?? 0)))
-        : 0;
-    if (othersPaid > total) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Tổng tiền đã ứng (${formatVnd(othersPaid)}) vượt quá tổng bill (${formatVnd(total)}).'),
+        const SnackBar(
+          content: Text('Nhập số tiền hợp lệ cho từng khoản chi.'),
         ),
       );
       return;
     }
-
+    if (_expenses.any((expense) => expense.participantIds.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mỗi khoản chi cần ít nhất một người tham gia.'),
+        ),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     try {
       final sessionId = newUuid();
       final now = DateTime.now();
-
-      // Tính amounts.
-      final amounts = computeShares(
-        total: total,
-        customAmounts: [for (final m in _members) m.customAmount],
-        custom: _splitMode == SessionSplitMode.custom,
-      );
-
-      // Lưu tên thật của người tạo để người khác xem phiên không thấy tên rỗng.
-      final me = await ref.read(userRepositoryProvider).findByUid(widget.creatorUid);
-
-      // Creator member (status: self).
-      final allMembers = <SessionMember>[
+      final total = _preview.totalAmount;
+      final preview = _preview;
+      final me = await ref
+          .read(userRepositoryProvider)
+          .findByUid(widget.creatorUid);
+      final members = <SessionMember>[
         SessionMember(
           memberId: widget.creatorUid,
           userId: widget.creatorUid,
           displayName: me?.name ?? '',
           isGuest: false,
-          amountOwed: amounts[0],
-          amountPaid: total - othersPaid,
+          amountOwed: preview.owedByMember[widget.creatorUid] ?? 0,
+          amountPaid: 0,
           status: MemberStatus.self,
         ),
+        for (var i = 0; i < _members.length; i++)
+          SessionMember(
+            memberId: _members[i].memberId,
+            userId: _members[i].userId,
+            displayName: _members[i].name,
+            isGuest: _members[i].isGuest,
+            amountOwed: preview.owedByMember[_members[i].memberId] ?? 0,
+            status: _members[i].isGuest
+                ? MemberStatus.pending
+                : MemberStatus.ledger,
+          ),
       ];
-
-      // Các thành viên khác.
-      for (int i = 0; i < _members.length; i++) {
-        final m = _members[i];
-        allMembers.add(SessionMember(
-          memberId: m.userId ?? newUuid(),
-          userId: m.userId,
-          displayName: m.name,
-          isGuest: m.isGuest,
-          amountOwed: amounts[i + 1],
-          amountPaid: (_multiPayer && !m.isGuest) ? (m.paidAmount ?? 0) : 0,
-          status: m.isGuest ? MemberStatus.pending : MemberStatus.ledger,
-        ));
-      }
-
-      final memberUserIds = allMembers
-          .where((m) => m.userId != null)
-          .map((m) => m.userId!)
-          .toList();
-
       final session = Session(
         sessionId: sessionId,
         creatorId: widget.creatorUid,
@@ -264,19 +336,39 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
         totalAmount: total,
         splitMode: _splitMode,
         status: SessionStatus.open,
-        memberUserIds: memberUserIds,
+        memberUserIds: members
+            .where((m) => m.userId != null)
+            .map((m) => m.userId!)
+            .toList(),
         createdAt: now,
       );
-
-      await ref
-          .read(sessionRepositoryProvider)
-          .createSession(session, allMembers);
-
+      final repository = ref.read(sessionRepositoryProvider);
+      final inputs = [
+        for (var i = 0; i < _expenses.length; i++)
+          ExpenseInput(
+            expenseId: 'expense-${(i + 1).toString().padLeft(4, '0')}',
+            description: _expenses[i].descriptionController.text.trim().isEmpty
+                ? 'Khoản chi ${i + 1}'
+                : _expenses[i].descriptionController.text.trim(),
+            amount: _expenses[i].amount,
+            payerId: _expenses[i].payerId,
+            participantIds: List.unmodifiable(
+              _memberIds.where(_expenses[i].participantIds.contains),
+            ),
+          ),
+      ];
+      await repository.createSessionWithExpenses(
+        session: session,
+        members: members,
+        expenses: inputs,
+      );
       if (mounted) Navigator.pop(context, true);
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tạo phiên thất bại. Thử lại.')),
+          const SnackBar(
+            content: Text('Tạo phiên thất bại. Kiểm tra kết nối rồi thử lại.'),
+          ),
         );
       }
     } finally {
@@ -284,300 +376,347 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
     }
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    final total = int.tryParse(_totalController.text) ?? 0;
-
-    // Tính preview amounts để hiển thị trong danh sách thành viên.
-    List<int>? shares;
-    if (total > 0) {
-      try {
-        shares = computeShares(
-          total: total,
-          customAmounts: [for (final m in _members) m.customAmount],
-          custom: _splitMode == SessionSplitMode.custom,
-        );
-      } on ArgumentError {
-        shares = null; // số nhập tay vượt bill → không hiển thị xem trước
-      }
-    }
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tạo phiên mới')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Tên phiên
-          TextField(
-            controller: _titleController,
-            decoration: const InputDecoration(
-              labelText: 'Tên phiên',
-              border: OutlineInputBorder(),
+    final total = _preview.totalAmount;
+    final theme = FTheme.neutral.light.touch;
+    return FTheme(
+      data: theme,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Tạo phiên mới')),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            FCard(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  children: [
+                    FTextField(
+                      control: FTextFieldControl.managed(
+                        controller: _titleController,
+                      ),
+                      label: const Text('Tên phiên'),
+                      hint: 'Ví dụ: Đi Đà Lạt',
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Khoản chi',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    for (var i = 0; i < _expenses.length; i++) ...[
+                      _ExpenseEditorCard(
+                        key: ValueKey(_expenses[i].key),
+                        index: i,
+                        expense: _expenses[i],
+                        memberIds: _memberIds,
+                        members: _members,
+                        creatorName: 'Bạn',
+                        isActive: _activeExpenseIndex == i,
+                        onActive: () => setState(() => _activeExpenseIndex = i),
+                        onAmountChanged: (_) =>
+                            setState(() => _activeExpenseIndex = i),
+                        onDescription: () => _editExpenseDescription(i),
+                        onRemove: _expenses.length > 1
+                            ? () => _removeExpense(i)
+                            : null,
+                        onChoosePayer: () => _choosePayer(i),
+                        onChooseParticipants: () => _editParticipants(i),
+                        onOcr: () => _pickAndOcr(i),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: FButton(
+                        variant: .outline,
+                        mainAxisSize: .min,
+                        onPress: _addExpense,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.add),
+                            SizedBox(width: 6),
+                            Text('Thêm khoản chi'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-
-          // Tổng tiền + OCR
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _totalController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: 'Tổng tiền (VND)',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => setState(() {}),
+            const SizedBox(height: 16),
+            FCard(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tổng phiên',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatVnd(total),
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const Divider(),
+                    for (final memberId in _memberIds)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                memberId == widget.creatorUid
+                                    ? 'Bạn'
+                                    : _members
+                                          .firstWhere(
+                                            (m) => m.memberId == memberId,
+                                          )
+                                          .name,
+                              ),
+                            ),
+                            Text(
+                              formatVnd(_preview.owedByMember[memberId] ?? 0),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              IconButton.outlined(
-                tooltip: 'Quét bill bằng OCR',
-                onPressed: _isOcring ? null : _pickAndOcr,
-                icon: _isOcring
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.document_scanner_outlined),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Chế độ chia
-          Row(
-            children: [
-              const Text('Cách chia:'),
-              const SizedBox(width: 12),
-              ChoiceChip(
-                label: const Text('Đều'),
-                selected: _splitMode == SessionSplitMode.equal,
-                onSelected: (_) =>
-                    setState(() => _splitMode = SessionSplitMode.equal),
-              ),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('Tuỳ chỉnh'),
-                selected: _splitMode == SessionSplitMode.custom,
-                onSelected: (_) =>
-                    setState(() => _splitMode = SessionSplitMode.custom),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Nhiều người ứng tiền
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Có người khác cũng ứng tiền'),
-            subtitle: const Text('VD: bạn trả bữa ăn, bạn B trả tiền đi chơi'),
-            value: _multiPayer,
-            onChanged: (v) => setState(() => _multiPayer = v),
-          ),
-          if (_multiPayer) ...[
-            const Text('Ai đã ứng bao nhiêu?',
-                style: TextStyle(fontWeight: FontWeight.w500)),
-            const SizedBox(height: 8),
-            for (final m in _members.where((m) => !m.isGuest))
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                title: Text(m.name),
-                trailing: _CustomAmountField(
-                  value: m.paidAmount,
-                  onChanged: (v) => setState(() => m.paidAmount = v),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Thành viên (${_members.length + 1})',
+                  style: Theme.of(context).textTheme.titleSmall,
                 ),
-              ),
+                TextButton.icon(
+                  icon: const Icon(Icons.person_add_outlined),
+                  label: const Text('Thêm'),
+                  onPressed: _showAddMemberDialog,
+                ),
+              ],
+            ),
             ListTile(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Bạn ứng (phần còn lại)'),
-              trailing: Text(formatVnd((total -
-                      _members.fold<int>(
-                          0, (s, m) => s + (m.isGuest ? 0 : (m.paidAmount ?? 0))))
-                  .clamp(0, total))),
+              leading: const CircleAvatar(child: Icon(Icons.person)),
+              title: const Text('Bạn (người tạo)'),
+              trailing: Text(
+                formatVnd(_preview.owedByMember[widget.creatorUid] ?? 0),
+              ),
+            ),
+            for (final member in _members)
+              ListTile(
+                leading: CircleAvatar(
+                  child: Text(
+                    member.name.isEmpty ? '?' : member.name[0].toUpperCase(),
+                  ),
+                ),
+                title: Text(member.name),
+                subtitle: member.isGuest ? const Text('Khách') : null,
+                trailing: Text(
+                  formatVnd(_preview.owedByMember[member.memberId] ?? 0),
+                ),
+              ),
+            const SizedBox(height: 20),
+            FButton(
+              onPress: _isSaving ? null : _submit,
+              child: _isSaving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Tạo phiên'),
             ),
           ],
-          const SizedBox(height: 16),
-
-          // Danh sách thành viên
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Thành viên (${_members.length + 1})',
-                  style: Theme.of(context).textTheme.titleSmall),
-              TextButton.icon(
-                icon: const Icon(Icons.person_add_outlined, size: 18),
-                label: const Text('Thêm'),
-                onPressed: _showAddMemberDialog,
-              ),
-            ],
-          ),
-
-          // Creator row
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const CircleAvatar(child: Icon(Icons.person)),
-            title: const Text('Bạn (người tạo)'),
-            trailing: shares != null
-                ? Text(formatVnd(shares[0]))
-                : const Text('—'),
-          ),
-
-          // Other members
-          for (int i = 0; i < _members.length; i++)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(
-                child: Text(_members[i].name.isNotEmpty
-                    ? _members[i].name[0].toUpperCase()
-                    : '?'),
-              ),
-              title: Text(_members[i].name),
-              subtitle: _members[i].isGuest
-                  ? const Text('Khách (chạm để sửa tên)',
-                      style: TextStyle(fontSize: 12, color: Colors.blueGrey))
-                  : null,
-              onTap: _members[i].isGuest ? () => _editGuestName(i) : null,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_splitMode == SessionSplitMode.equal)
-                    (shares != null
-                        ? Text(formatVnd(shares[i + 1]),
-                            style: const TextStyle(fontWeight: FontWeight.w500))
-                        : const SizedBox.shrink())
-                  else
-                    _CustomAmountField(
-                      value: _members[i].customAmount,
-                      onChanged: (v) =>
-                          setState(() => _members[i].customAmount = v),
-                    ),
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle_outline,
-                        color: Colors.red, size: 20),
-                    tooltip: 'Xoá thành viên',
-                    onPressed: () => _removeMember(i),
-                  ),
-                ],
-              ),
-            ),
-
-          if (_members.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Text('Chưa có thành viên nào khác. Bấm "Thêm" để thêm bạn bè.',
-                  style: TextStyle(color: Colors.grey, fontSize: 12)),
-            )
-          else
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
-              child: Text('Mẹo: Nhấn vào tên khách để đổi tên, bấm biểu tượng đỏ để xoá.',
-                  style: TextStyle(color: Colors.grey, fontSize: 12)),
-            ),
-
-          const SizedBox(height: 24),
-
-          FilledButton(
-            onPressed: _isSaving ? null : _submit,
-            child: _isSaving
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child:
-                        CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
-                : const Text('Tạo phiên'),
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-// ── Helper model ────────────────────────────────────────────────────────────
+class _ExpenseEditorCard extends StatelessWidget {
+  final int index;
+  final _ExpenseEntry expense;
+  final List<String> memberIds;
+  final List<_MemberEntry> members;
+  final String creatorName;
+  final bool isActive;
+  final VoidCallback onActive;
+  final ValueChanged<String> onAmountChanged;
+  final VoidCallback onDescription;
+  final VoidCallback? onRemove;
+  final VoidCallback onChoosePayer;
+  final VoidCallback onChooseParticipants;
+  final VoidCallback onOcr;
+
+  const _ExpenseEditorCard({
+    super.key,
+    required this.index,
+    required this.expense,
+    required this.memberIds,
+    required this.members,
+    required this.creatorName,
+    required this.isActive,
+    required this.onActive,
+    required this.onAmountChanged,
+    required this.onDescription,
+    required this.onRemove,
+    required this.onChoosePayer,
+    required this.onChooseParticipants,
+    required this.onOcr,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final payer = expense.payerId == memberIds.first
+        ? creatorName
+        : members.firstWhere((m) => m.memberId == expense.payerId).name;
+    final selectedNames = [
+      if (expense.participantIds.contains(memberIds.first)) creatorName,
+      for (final member in members)
+        if (expense.participantIds.contains(member.memberId)) member.name,
+    ];
+    return FCard(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Khoản chi ${index + 1}',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                ),
+                if (onRemove != null)
+                  IconButton(
+                    onPressed: onRemove,
+                    tooltip: 'Xoá khoản chi',
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+              ],
+            ),
+            InkWell(
+              onTap: onDescription,
+              child: InputDecorator(
+                decoration: const InputDecoration(labelText: 'Mô tả'),
+                child: Text(
+                  expense.descriptionController.text.isEmpty
+                      ? 'Chạm để thêm mô tả'
+                      : expense.descriptionController.text,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: FTextField(
+                    control: FTextFieldControl.managed(
+                      controller: expense.amountController,
+                      onChange: (_) => onAmountChanged(''),
+                    ),
+                    label: const Text('Số tiền (VND)'),
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    onTap: onActive,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed: onOcr,
+                  tooltip: 'Quét bill bằng OCR',
+                  icon: const Icon(Icons.document_scanner_outlined),
+                ),
+              ],
+            ),
+            Material(
+              color: Colors.transparent,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Người trả'),
+                subtitle: Text(payer),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: onChoosePayer,
+              ),
+            ),
+            Material(
+              color: Colors.transparent,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Người tham gia'),
+                subtitle: Text(
+                  selectedNames.isEmpty
+                      ? 'Chưa chọn'
+                      : selectedNames.join(', '),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: onChooseParticipants,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExpenseEntry {
+  final String key = UniqueKey().toString();
+  final TextEditingController descriptionController = TextEditingController();
+  final TextEditingController amountController = TextEditingController();
+  final List<String> participantIds = [];
+  String payerId;
+
+  _ExpenseEntry({required this.payerId});
+
+  int get amount => int.tryParse(amountController.text.trim()) ?? 0;
+
+  void dispose() {
+    descriptionController.dispose();
+    amountController.dispose();
+  }
+}
 
 class _MemberEntry {
   final String name;
   final String? userId;
+  final String memberId;
   final bool isGuest;
   int? customAmount;
-
-  /// Số tiền thành viên này đã ứng trả (chỉ dùng khi bật nhiều người ứng tiền).
-  int? paidAmount;
 
   _MemberEntry({
     required this.name,
     required this.userId,
+    required this.memberId,
     required this.isGuest,
   });
 
   factory _MemberEntry.fromUser(AppUser user) => _MemberEntry(
-        name: user.name,
-        userId: user.uid,
-        isGuest: false,
-      );
+    name: user.name,
+    userId: user.uid,
+    memberId: user.uid,
+    isGuest: false,
+  );
 
   factory _MemberEntry.guest(String name) => _MemberEntry(
-        name: name,
-        userId: null,
-        isGuest: true,
-      );
+    name: name,
+    userId: null,
+    memberId: newUuid(),
+    isGuest: true,
+  );
 }
-
-// ── Widget nhập số tiền tuỳ chỉnh ──────────────────────────────────────────
-
-class _CustomAmountField extends StatefulWidget {
-  final int? value;
-  final ValueChanged<int?> onChanged;
-  const _CustomAmountField({required this.value, required this.onChanged});
-
-  @override
-  State<_CustomAmountField> createState() => _CustomAmountFieldState();
-}
-
-class _CustomAmountFieldState extends State<_CustomAmountField> {
-  late final TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(
-        text: widget.value != null ? widget.value.toString() : '');
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 110,
-      child: TextField(
-        controller: _ctrl,
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        decoration: const InputDecoration(
-          suffixText: 'đ',
-          isDense: true,
-          border: OutlineInputBorder(),
-        ),
-        onChanged: (v) => widget.onChanged(int.tryParse(v)),
-      ),
-    );
-  }
-}
-
-// ── Bottom sheet thêm thành viên ────────────────────────────────────────────
 
 class _AddMemberSheet extends ConsumerStatefulWidget {
   final String currentUid;
@@ -606,64 +745,34 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
   }
 
   void _showMyQrCode(BuildContext context) {
-    showDialog(
+    showDialog<void>(
       context: context,
-      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.qr_code_2, color: Colors.blue),
-            SizedBox(width: 8),
-            Text('QR kết bạn của bạn'),
-          ],
-        ),
+        title: const Text('QR kết bạn của bạn'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              'Đưa bạn bè quét mã này. Họ sẽ tự động xuất hiện trong danh sách bạn bè bên dưới!',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-            ),
+            const Text('Đưa bạn bè quét mã này để kết bạn.'),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              // Dùng CustomPaint thay QrImageView: QrImageView dùng LayoutBuilder
-              // nên AlertDialog (cần intrinsic size) không vẽ được.
-              child: CustomPaint(
-                size: const Size(200, 200),
-                painter: QrPainter(
-                  data: widget.currentUid,
-                  version: QrVersions.auto,
-                  eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: Colors.black,
-                  ),
-                  dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: Colors.black,
-                  ),
+            CustomPaint(
+              size: const Size(200, 200),
+              painter: QrPainter(
+                data: widget.currentUid,
+                version: QrVersions.auto,
+                eyeStyle: const QrEyeStyle(
+                  eyeShape: QrEyeShape.square,
+                  color: Colors.black,
+                ),
+                dataModuleStyle: const QrDataModuleStyle(
+                  dataModuleShape: QrDataModuleShape.square,
+                  color: Colors.black,
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '⚡ Bạn bè quét xong sẽ tự hiện ngay lập tức!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.green,
-                  fontWeight: FontWeight.w600),
             ),
           ],
         ),
         actions: [
-          FilledButton(
+          TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('Đóng'),
           ),
@@ -673,7 +782,7 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
   }
 
   void _scanFriendQr(BuildContext context) {
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) => SizedBox(
@@ -694,44 +803,47 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
               child: MobileScanner(
                 onDetect: (capture) async {
                   final uid = capture.barcodes.firstOrNull?.rawValue;
-                  if (uid == null || uid.isEmpty) return;
-                  if (uid == widget.currentUid) return;
-
-                  Navigator.pop(ctx); // Đóng scanner
-
+                  if (uid == null || uid.isEmpty || uid == widget.currentUid) {
+                    return;
+                  }
+                  Navigator.pop(ctx);
                   try {
                     final userRepo = ref.read(userRepositoryProvider);
                     final otherUser = await userRepo.findByUid(uid);
-                    final currentUser =
-                        await userRepo.findByUid(widget.currentUid);
-
+                    final currentUser = await userRepo.findByUid(
+                      widget.currentUid,
+                    );
                     if (otherUser != null) {
-                      // Kết bạn 2 chiều
                       await userRepo.upsertContact(
-                          widget.currentUid, otherUser);
+                        widget.currentUid,
+                        otherUser,
+                      );
                       if (currentUser != null) {
                         try {
                           await userRepo.upsertContact(
-                              otherUser.uid, currentUser);
+                            otherUser.uid,
+                            currentUser,
+                          );
                         } catch (_) {}
                       }
-                      // Thêm luôn vào phiên
                       widget.onAddUser(otherUser);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                              content: Text(
-                                  'Đã kết bạn và thêm ${otherUser.name} vào phiên!')),
+                            content: Text(
+                              'Đã kết bạn và thêm ${otherUser.name} vào phiên!',
+                            ),
+                          ),
                         );
-                        Navigator.pop(context); // Đóng sheet
+                        Navigator.pop(context);
                       }
                     }
-                  } catch (e) {
+                  } catch (_) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                            content:
-                                Text('Có lỗi khi kết bạn. Thử lại.')),
+                          content: Text('Có lỗi khi kết bạn. Thử lại.'),
+                        ),
                       );
                     }
                   }
@@ -747,57 +859,50 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
   @override
   Widget build(BuildContext context) {
     final contactsAsync = ref.watch(contactsProvider(widget.currentUid));
-
     return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        MediaQuery.of(context).viewInsets.bottom + 16,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('Thêm thành viên',
-              style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Thêm thành viên',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: 12),
-
-          // Hai nút QR tiện lợi: Hiện QR của tôi & Quét QR bạn bè
           Row(
             children: [
               Expanded(
                 child: FilledButton.tonalIcon(
-                  icon: const Icon(Icons.qr_code_2, size: 20),
-                  label: const Text('Hiện QR của tôi',
-                      style: TextStyle(fontSize: 13)),
                   onPressed: () => _showMyQrCode(context),
+                  icon: const Icon(Icons.qr_code_2),
+                  label: const Text('Hiện QR của tôi'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.qr_code_scanner, size: 18),
-                  label: const Text('Quét QR bạn',
-                      style: TextStyle(fontSize: 13)),
                   onPressed: () => _scanFriendQr(context),
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Quét QR bạn'),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-
-          // Thêm Guest
           Row(
             children: [
               Expanded(
-                child: TextField(
-                  controller: _guestController,
-                  decoration: const InputDecoration(
-                    labelText: 'Tên khách (nếu không có app)',
-                    border: OutlineInputBorder(),
-                    isDense: true,
+                child: FTextField(
+                  control: FTextFieldControl.managed(
+                    controller: _guestController,
                   ),
+                  label: const Text('Tên khách (nếu không có app)'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -806,7 +911,6 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                   final name = _guestController.text.trim();
                   if (name.isEmpty) return;
                   widget.onAddGuest(name);
-                  // Clear text, không đóng sheet — cho phép thêm nhiều khách.
                   _guestController.clear();
                 },
                 child: const Text('Thêm'),
@@ -816,61 +920,38 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
           const SizedBox(height: 16),
           const Text('Chọn từ danh sách bạn bè:'),
           const SizedBox(height: 8),
-
           SizedBox(
             height: 200,
             child: contactsAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Lỗi: $e')),
               data: (list) {
-                // Loại bỏ creator và những người đã thêm vào phiên.
                 final filtered = list
-                    .where((u) =>
-                        u.uid != widget.currentUid &&
-                        !widget.alreadyAddedUids.contains(u.uid))
+                    .where(
+                      (u) =>
+                          u.uid != widget.currentUid &&
+                          !widget.alreadyAddedUids.contains(u.uid),
+                    )
                     .toList();
-                if (list.isEmpty) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        'Chưa có bạn bè.\nBấm "Hiện QR của tôi" ở trên để bạn bè quét kết bạn!',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey, height: 1.4),
-                      ),
-                    ),
-                  );
-                }
                 if (filtered.isEmpty) {
                   return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text(
-                        'Tất cả bạn bè đã được thêm vào phiên.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
+                    child: Text('Chưa có bạn bè nào có thể thêm.'),
                   );
                 }
                 return ListView.builder(
                   itemCount: filtered.length,
                   itemBuilder: (_, i) => ListTile(
                     leading: CircleAvatar(
-                      child: Text(filtered[i].name.isNotEmpty
-                          ? filtered[i].name[0].toUpperCase()
-                          : '?'),
+                      child: Text(
+                        filtered[i].name.isEmpty
+                            ? '?'
+                            : filtered[i].name[0].toUpperCase(),
+                      ),
                     ),
                     title: Text(filtered[i].name),
-                    subtitle: Text(filtered[i].email,
-                        style: const TextStyle(fontSize: 12)),
-                    trailing: const Icon(Icons.add_circle_outline,
-                        color: Colors.blue),
-                    onTap: () {
-                      widget.onAddUser(filtered[i]);
-                      // Không đóng sheet — cho phép thêm nhiều người liên tiếp.
-                    },
+                    subtitle: Text(filtered[i].email),
+                    trailing: const Icon(Icons.add_circle_outline),
+                    onTap: () => widget.onAddUser(filtered[i]),
                   ),
                 );
               },
