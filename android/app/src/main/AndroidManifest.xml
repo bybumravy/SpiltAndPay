@@ -59,6 +59,7 @@
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="vcb" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="techcombank" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="momo" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="bidvsmartbanking" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="bidv" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="tpbank" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="vpbank" /></intent>

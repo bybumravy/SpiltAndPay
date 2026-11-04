@@ -64,7 +64,7 @@ const List<BankAppInfo> kSupportedBanks = [
     name: 'BIDV SmartBanking',
     shortName: 'BIDV',
     packageName: 'com.vnpay.bidv',
-    scheme: 'bidv://',
+    scheme: 'bidvsmartbanking://',
     brandColor: Color(0xFF0F75BC),
     icon: Icons.account_balance,
   ),
