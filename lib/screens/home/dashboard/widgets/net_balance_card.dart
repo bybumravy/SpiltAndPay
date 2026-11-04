@@ -38,7 +38,7 @@ class NetBalanceCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'SỐ DƯ RÒNG',
+                  'SỐ DƯ',
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -61,17 +61,6 @@ class NetBalanceCard extends StatelessWidget {
                     : isNegative
                         ? Colors.red.shade700
                         : colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              isPositive
-                  ? 'Bạn cần thu về nhiều hơn số tiền cần trả'
-                  : isNegative
-                      ? 'Bạn cần trả nhiều hơn số tiền cần thu'
-                      : 'Công nợ của bạn đang ở mức cân bằng',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 16),
