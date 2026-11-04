@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
@@ -17,7 +18,12 @@ class SplitPayApp extends StatelessWidget {
     return MaterialApp(
       title: 'Split & Pay',
       debugShowCheckedModeBanner: false,
-      localizationsDelegates: FLocalizations.localizationsDelegates,
+      localizationsDelegates: const [
+        ...FLocalizations.localizationsDelegates,
+        DefaultMaterialLocalizations.delegate,
+        DefaultWidgetsLocalizations.delegate,
+        DefaultCupertinoLocalizations.delegate,
+      ],
       supportedLocales: FLocalizations.supportedLocales,
       builder: (context, child) =>
           FTheme(data: FTheme.neutral.light.touch, child: child!),
