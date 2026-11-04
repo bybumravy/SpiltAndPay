@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -31,7 +32,11 @@ class NotificationRepository {
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => AppNotification.fromMap(doc.id, doc.data()))
-            .toList());
+            .toList())
+        .handleError((dynamic error) {
+          debugPrint('Notification watch stream error: $error');
+          return <AppNotification>[];
+        });
   }
 
   /// Đếm số lượng thông báo chưa đọc
@@ -39,7 +44,11 @@ class NotificationRepository {
     return _notifCol(uid)
         .where('isRead', isEqualTo: false)
         .snapshots()
-        .map((snapshot) => snapshot.docs.length);
+        .map((snapshot) => snapshot.docs.length)
+        .handleError((dynamic error) {
+          debugPrint('Notification unread count error: $error');
+          return 0;
+        });
   }
 
   /// Đánh dấu một thông báo đã đọc

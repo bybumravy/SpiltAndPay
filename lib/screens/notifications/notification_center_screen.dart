@@ -45,7 +45,30 @@ class NotificationCenterScreen extends ConsumerWidget {
       ),
       body: notificationsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Lỗi tải thông báo: $e')),
+        error: (e, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.notifications_none, size: 64, color: Colors.grey.shade400),
+                const SizedBox(height: 16),
+                const Text(
+                  'Bạn chưa có thông báo nào.',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  e.toString().contains('permission-denied')
+                      ? 'Lưu ý: Cần Publish firestore.rules lên Firebase Console của nhóm để đồng bộ realtime.'
+                      : 'Lỗi: $e',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (notifications) {
           if (notifications.isEmpty) {
             return Center(
