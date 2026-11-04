@@ -55,6 +55,11 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
 
     Navigator.pop(context);
 
+    // Tự động lưu ảnh QR vào thư viện ngầm
+    try {
+      await widget.onSaveQr();
+    } catch (_) {}
+
     final success = await BankingAppService.openBankApp(
       bank: bank,
       transferNote: note,
@@ -64,11 +69,11 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
       SnackBar(
         content: Text(
           success
-              ? 'Đã mở ${bank.shortName} và sao chép nội dung: "$note"'
+              ? 'Đã mở ${bank.shortName}! QR đã tự động lưu vào máy & sao chép nội dung.'
               : 'Không mở được ứng dụng. Vui lòng kiểm tra lại.',
         ),
-        backgroundColor: success ? Colors.green.shade700 : Colors.red.shade700,
-        duration: const Duration(seconds: 4),
+        backgroundColor: success ? Colors.teal.shade800 : Colors.red.shade700,
+        duration: const Duration(seconds: 5),
       ),
     );
   }
@@ -118,52 +123,38 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
               ),
               const SizedBox(height: 12),
 
-              // Banner tự động sao chép nội dung
+              // Banner tự động hóa 1-chạm
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
+                  color: Colors.teal.shade50,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.blue.shade200),
+                  border: Border.all(color: Colors.teal.shade200),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.copy, size: 16, color: Colors.blue.shade800),
+                    Icon(Icons.auto_awesome, size: 18, color: Colors.teal.shade800),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Nội dung chuyển khoản tự động:',
+                            'Tự động 1-chạm khi chọn ngân hàng:',
                             style: TextStyle(
                               fontSize: 11,
-                              color: Colors.blue.shade900,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.teal.shade900,
                             ),
                           ),
                           Text(
-                            widget.transferNote,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
+                            'Lưu ảnh QR vào máy + Copy: "${widget.transferNote}"',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.teal.shade900,
                             ),
                           ),
                         ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade100,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        'Tự động copy',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue.shade900,
-                        ),
                       ),
                     ),
                   ],
@@ -190,7 +181,7 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.download, size: 18),
-                label: const Text('Lưu ảnh QR vào máy để quét trong app'),
+                label: const Text('Bấm để lưu ảnh QR vào máy'),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(40),
                 ),

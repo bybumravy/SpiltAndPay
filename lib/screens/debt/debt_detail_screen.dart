@@ -206,7 +206,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
   bool _isSaving = false;
 
   /// Lưu ảnh QR của chủ nợ vào thư viện để mở app ngân hàng quét.
-  Future<void> _saveQr() async {
+  Future<void> _saveQr({bool silent = false}) async {
     final url = widget.otherQrUrl;
     if (url == null) return;
     setState(() => _isSaving = true);
@@ -216,7 +216,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
           ? await renderQrPng(dynamicQr) // QR đã điền sẵn số tiền + nội dung
           : await downloadImageBytes(url);
       await saveImageToGallery(bytes, name: 'qr_${widget.otherUid}');
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
@@ -231,7 +231,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Không lưu được ảnh. Kiểm tra mạng và quyền ảnh.'),
@@ -399,7 +399,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                       context,
                       transferNote: note,
                       amount: widget.netAmount,
-                      onSaveQr: _saveQr,
+                      onSaveQr: () => _saveQr(silent: true),
                     );
                   },
                   icon: const Icon(Icons.account_balance, size: 18),
@@ -408,7 +408,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
               ),
               const SizedBox(width: 8),
               OutlinedButton.icon(
-                onPressed: _isSaving ? null : _saveQr,
+                onPressed: _isSaving ? null : () => _saveQr(silent: false),
                 icon: _isSaving
                     ? const SizedBox(
                         width: 16,
