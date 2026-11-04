@@ -68,3 +68,6 @@ ui-debug.log
 
 # Claude Code temporary worktrees
 .claude/worktrees/
+
+# Local App Check debug secrets (never commit)
+.local/

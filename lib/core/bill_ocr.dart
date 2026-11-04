@@ -6,6 +6,8 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 class BillScanResult {
   /// Tổng tiền (VND), null nếu không tìm thấy.
   final int? total;
+  final String? description;
+  final String? reviewReason;
 
   /// true nếu số này nằm cạnh từ khóa như "Tổng cộng"; false nếu chỉ là
   /// số lớn nhất đoán được → nên nhắc user kiểm tra lại.
@@ -16,6 +18,8 @@ class BillScanResult {
 
   const BillScanResult({
     required this.total,
+    this.description,
+    this.reviewReason,
     required this.confident,
     required this.candidates,
   });
@@ -199,8 +203,7 @@ BillScanResult findBillTotal(List<String> lines) {
 
 List<int> _amountsIn(String line) {
   return [
-    for (final m in _amountToken.allMatches(line))
-      ?parseAmount(m.group(0)!),
+    for (final m in _amountToken.allMatches(line)) ?parseAmount(m.group(0)!),
   ];
 }
 
