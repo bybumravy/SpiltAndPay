@@ -680,42 +680,101 @@ class _ExpenseSection extends ConsumerWidget {
           if (expenses.isEmpty)
             const ListTile(title: Text('Chưa có khoản chi')),
           for (final expense in expenses)
-            ListTile(
-              title: Text(expense.description),
-              subtitle: Text(
-                'Người trả: ${names[expense.payerId] ?? expense.payerId}\\n'
-                'Tham gia: ${expense.participantIds.map((id) => names[id] ?? id).join(', ')}',
-              ),
-              isThreeLine: true,
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(formatVnd(expense.amount)),
-                  if (isEditable) ...[
-                    IconButton(
-                      tooltip: 'Sửa khoản chi',
-                      onPressed: () => _editExpense(context, ref, expense),
-                      icon: const Icon(Icons.edit_outlined),
-                    ),
-                    IconButton(
-                      tooltip: 'Xoá khoản chi',
-                      onPressed: expenses.length <= 1
-                          ? null
-                          : () => _deleteExpense(context, ref, expense),
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ],
-              ),
-              leading: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (final share in expense.effectiveShares.entries)
-                    Text(
-                      '${names[share.key] ?? share.key}: ${formatVnd(share.value)}',
-                    ),
-                ],
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Card.outlined(
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              expense.description,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Text(
+                              formatVnd(expense.amount),
+                              textAlign: TextAlign.end,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Người trả: ${names[expense.payerId] ?? expense.payerId}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Chia cho ${expense.participantIds.length} người',
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      for (final share in expense.effectiveShares.entries)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(names[share.key] ?? share.key),
+                              ),
+                              const SizedBox(width: 12),
+                              Flexible(
+                                child: Text(
+                                  formatVnd(share.value),
+                                  textAlign: TextAlign.end,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (isEditable) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            IconButton(
+                              tooltip: 'Sửa khoản chi',
+                              onPressed: () =>
+                                  _editExpense(context, ref, expense),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            IconButton(
+                              tooltip: 'Xoá khoản chi',
+                              onPressed: expenses.length <= 1
+                                  ? null
+                                  : () => _deleteExpense(context, ref, expense),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ),
           if (isEditable)
