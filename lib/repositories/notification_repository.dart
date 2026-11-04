@@ -54,12 +54,6 @@ class NotificationRepository {
         notificationId.startsWith('debt_confirm_')) {
       return;
     }
-    // Nếu là thông báo thông minh được sinh in-memory từ khoản nợ thì không cần gọi Firestore
-    if (notificationId.startsWith('debt_lend_') ||
-        notificationId.startsWith('debt_confirm_') ||
-        notificationId.startsWith('debt_settled_')) {
-      return;
-    }
     try {
       await _notifCol(uid).doc(notificationId).update({'isRead': true});
     } catch (e) {
@@ -141,7 +135,6 @@ final readNotificationIdsProvider =
 final userNotificationsProvider = StreamProvider.autoDispose
     .family<List<AppNotification>, String>((ref, uid) {
       final debtsAsync = ref.watch(userDebtsProvider(uid));
-      final readIds = ref.watch(readNotificationIdsProvider);
 
       final debts = debtsAsync.valueOrNull ?? [];
       final smartNotifs = <AppNotification>[];
@@ -151,9 +144,9 @@ final userNotificationsProvider = StreamProvider.autoDispose
         final debtDocId = Debt.docId(debt.userA, debt.userB);
 
         if (owed > 0) {
-          // 1. Khoản nợ bạn đang nợ chưa trả:
+          // 1. Phía con nợ: Khoản nợ bạn đang nợ chưa trả
           // TUYỆT ĐỐI KHÔNG ĐƯỢC ẨN. isRead luôn là false.
-          // CHỈ ĐƯỢC ẨN khi chủ nợ bấm xác nhận (khoản nợ về 0đ).
+          // CHỈ BIẾN MẤT khi chủ nợ bấm xác nhận (khoản nợ về 0đ).
           final notifId = 'debt_need_pay_${debtDocId}_${debt.balance}';
           smartNotifs.add(
             AppNotification(
@@ -167,54 +160,21 @@ final userNotificationsProvider = StreamProvider.autoDispose
               createdAt: debt.updatedAt,
             ),
           );
-        } else if (owed < 0) {
-          // 2. Khoản tiền bạn đang cho vay:
-          if (debt.hasPendingPayment) {
-            // Con nợ đã bấm thanh toán -> Chủ nợ cần xác nhận (LUÔN unread cho tới khi chủ nợ xác nhận xong)
-            final notifId =
-                'debt_confirm_${debtDocId}_${debt.pendingPaymentId}';
-            smartNotifs.add(
-              AppNotification(
-                id: notifId,
-                title: '⚡ Chờ bạn xác nhận thanh toán',
-                body:
-                    'Đối phương đã bấm chuyển tiền ${formatVnd(owed.abs())}. Chạm để kiểm tra và xác nhận!',
-                type: NotificationType.paymentPending,
-                targetDebtId: debtDocId,
-                isRead: false,
-                createdAt: debt.updatedAt,
-              ),
-            );
-          } else {
-            // Bạn là chủ nợ, được đánh dấu đã đọc và ẩn đi khi đã nắm thông tin.
-            final notifId = 'debt_lend_${debtDocId}_${debt.balance}';
-            smartNotifs.add(
-              AppNotification(
-                id: notifId,
-                title: '🤝 Khoản tiền cho vay',
-                body:
-                    'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết!',
-                type: NotificationType.debtReminder,
-                targetDebtId: debtDocId,
-                isRead: readIds.contains(notifId),
-                createdAt: debt.updatedAt,
-              ),
-            );
-          }
-        } else if (debt.balance == 0) {
-          // 3. Khoản nợ đã xác nhận trả nợ thành công (đã hòa / balance == 0):
-          // Thông báo xác nhận thành công này CÓ THỂ được đánh dấu đã đọc và ẨN ĐI.
+        } else if (owed < 0 && debt.hasPendingPayment) {
+          // 2. Phía chủ nợ: DUY NHẤT 1 THÔNG BÁO khi con nợ đã chuyển tiền xin xác nhận
+          // TUYỆT ĐỐI KHÔNG ĐƯỢC ẨN. isRead luôn là false.
+          // CHỈ BIẾN MẤT khi chủ nợ bấm xác nhận nhận tiền (pendingPaymentId được xóa).
           final notifId =
-              'debt_settled_${debtDocId}_${debt.updatedAt.millisecondsSinceEpoch}';
+              'debt_confirm_${debtDocId}_${debt.pendingPaymentId}';
           smartNotifs.add(
             AppNotification(
               id: notifId,
-              title: '✅ Đã xác nhận trả nợ thành công',
+              title: '⚡ Chờ bạn xác nhận thanh toán',
               body:
-                  'Khoản nợ giữa hai bên đã được xác nhận thanh toán đủ (số dư về 0đ).',
-              type: NotificationType.paymentConfirmed,
+                  'Đối phương đã bấm chuyển tiền ${formatVnd(owed.abs())}. Chạm để kiểm tra và xác nhận!',
+              type: NotificationType.paymentPending,
               targetDebtId: debtDocId,
-              isRead: readIds.contains(notifId),
+              isRead: false,
               createdAt: debt.updatedAt,
             ),
           );

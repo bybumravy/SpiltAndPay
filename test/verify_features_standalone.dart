@@ -171,9 +171,9 @@ void main() {
     notifRepoCode.contains('debt_need_pay_') &&
     notifRepoCode.contains('isRead: false')
   );
-  assertTest('7.3. Sinh thông báo xác nhận trả nợ thành công khi balance == 0 (debt_settled_)',
-    notifRepoCode.contains('debt_settled_') &&
-    notifRepoCode.contains('debt.balance == 0')
+  assertTest('7.3. Phân hệ sinh cảnh báo xác nhận thanh toán duy nhất cho chủ nợ (debt_confirm_)',
+    notifRepoCode.contains('debt_confirm_') &&
+    notifRepoCode.contains('hasPendingPayment')
   );
   assertTest('7.4. Cơ chế markRead và markAllRead bảo vệ khoản nợ chưa trả khỏi bị ẩn',
     notifRepoCode.contains("notifId.startsWith('debt_need_pay_')") &&
