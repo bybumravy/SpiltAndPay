@@ -93,7 +93,7 @@ class DashboardTab extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      'Tổng quan tài chính',
+                      'Tổng quan',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),

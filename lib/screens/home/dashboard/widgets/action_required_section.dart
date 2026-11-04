@@ -44,10 +44,10 @@ class ActionRequiredSection extends ConsumerWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.notification_important, size: 20, color: Colors.orange.shade800),
+            Icon(Icons.assignment_outlined, size: 20, color: Colors.orange.shade800),
             const SizedBox(width: 8),
             Text(
-              'Cần xử lý ngay',
+              'Việc cần làm',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -84,7 +84,7 @@ class ActionRequiredSection extends ConsumerWidget {
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Tuyệt vời! Bạn không có khoản nợ nào cần xử lý lúc này.',
+                      'Không có khoản nợ nào cần xử lý lúc này.',
                       style: TextStyle(color: Colors.green, fontWeight: FontWeight.w500),
                     ),
                   ),
@@ -145,14 +145,14 @@ class _ActionDebtTile extends ConsumerWidget {
 
     if (iAmDebtor) {
       if (debt.hasPendingPayment) {
-        subtitle = 'Đang chờ chủ nợ xác nhận';
+        subtitle = 'Chờ xác nhận';
         subtitleColor = Colors.blue.shade700;
         actionText = 'Chờ duyệt';
         actionColor = Colors.blue.shade700;
         avatarBg = Colors.blue.shade100;
         avatarText = Colors.blue.shade900;
       } else {
-        subtitle = 'Bạn cần thanh toán';
+        subtitle = 'Cần thanh toán';
         subtitleColor = Colors.red.shade700;
         actionText = 'Trả ngay';
         actionColor = Theme.of(context).colorScheme.primary;
@@ -161,7 +161,7 @@ class _ActionDebtTile extends ConsumerWidget {
       }
     } else {
       // Chủ nợ: Chỉ xuất hiện khi con nợ đã chuyển tiền chờ xác nhận
-      subtitle = 'Đã chuyển tiền, chờ bạn xác nhận';
+      subtitle = 'Đã chuyển tiền, chờ xác nhận';
       subtitleColor = Colors.orange.shade900;
       actionText = 'Xác nhận';
       actionColor = Colors.orange.shade900;

@@ -38,7 +38,7 @@ class NetBalanceCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'CÁN CÂN TÀI CHÍNH RÒNG',
+                  'SỐ DƯ RÒNG',
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     letterSpacing: 0.5,
@@ -66,10 +66,10 @@ class NetBalanceCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               isPositive
-                  ? 'Bạn đang được thu về nhiều hơn số tiền phải trả'
+                  ? 'Bạn cần thu về nhiều hơn số tiền cần trả'
                   : isNegative
-                      ? 'Bạn cần thanh toán bớt các khoản nợ tồn đọng'
-                      : 'Cán cân tài chính của bạn đang ở mức cân bằng',
+                      ? 'Bạn cần trả nhiều hơn số tiền cần thu'
+                      : 'Công nợ của bạn đang ở mức cân bằng',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
@@ -79,7 +79,7 @@ class NetBalanceCard extends StatelessWidget {
             const SizedBox(height: 16),
             Row(
               children: [
-                // Bạn đang nợ
+                // Cần trả
                 Expanded(
                   child: Row(
                     children: [
@@ -101,7 +101,7 @@ class NetBalanceCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Bạn đang nợ',
+                              'Cần trả',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                               ),
@@ -121,7 +121,7 @@ class NetBalanceCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Bạn được nợ
+                // Cần thu
                 Expanded(
                   child: Row(
                     children: [
@@ -143,7 +143,7 @@ class NetBalanceCard extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Được nợ',
+                              'Cần thu',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: colorScheme.onSurfaceVariant,
                               ),
