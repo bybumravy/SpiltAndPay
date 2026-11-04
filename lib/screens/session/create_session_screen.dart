@@ -741,21 +741,41 @@ class _CreateSessionScreenState extends ConsumerState<CreateSessionScreen> {
                     ],
                   ),
                 ),
-              const SizedBox(height: 20),
-              FButton(
-                onPress: _isSaving ? null : _submit,
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(
-                        widget.initialSession == null
-                            ? 'Tạo phiên'
-                            : 'Lưu thay đổi',
-                      ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: FilledButton(
+                  onPressed: _isSaving ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF6C63FF),
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: _isSaving
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Text(
+                          widget.initialSession == null
+                              ? 'Tạo phiên'
+                              : 'Lưu thay đổi',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
               ),
+              const SizedBox(height: 90),
             ],
           ),
         ),
