@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../core/firebase_providers.dart';
 import '../../models/app_notification.dart';
+import '../../models/debt.dart';
 import '../../repositories/debt_repository.dart';
 import '../../repositories/notification_repository.dart';
 import '../../repositories/session_repository.dart';

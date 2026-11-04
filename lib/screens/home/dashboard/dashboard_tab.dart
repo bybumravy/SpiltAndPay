@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase_providers.dart';
-import '../../../models/debt.dart';
 import '../../../repositories/debt_repository.dart';
 import '../../../repositories/session_repository.dart';
 import '../../../repositories/user_repository.dart';
