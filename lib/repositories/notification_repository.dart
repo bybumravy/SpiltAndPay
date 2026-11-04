@@ -1,9 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
 
 import '../core/firebase_providers.dart';
 import '../core/money.dart';
@@ -13,16 +11,8 @@ import 'debt_repository.dart';
 
 class NotificationRepository {
   final FirebaseFirestore _db;
-  final FirebaseAuth _auth;
 
-  NotificationRepository(this._db, [FirebaseAuth? auth])
-    : _auth = auth ?? FirebaseAuth.instance;
-
-  String get _currentUid {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) throw StateError('Bạn cần đăng nhập để thao tác.');
-    return uid;
-  }
+  NotificationRepository(this._db);
 
   CollectionReference<Map<String, dynamic>> _notifCol(String uid) =>
       _db.collection('users').doc(uid).collection('notifications');
@@ -88,128 +78,11 @@ class NotificationRepository {
       debugPrint('markAllAsRead error: $e');
     }
   }
-
-  /// Gửi lời nhắc trả tiền (Manual Nudge) với kiểm tra giới hạn tần suất 24h.
-  /// Trả về nội dung lời nhắc để chia sẻ qua Zalo/Messenger/SMS.
-  Future<String> sendDebtReminder({
-    required String debtId,
-    required String targetUid,
-    required String creditorName,
-    required String debtorName,
-    required int amount,
-    required String style, // 'funny', 'polite', 'gentle'
-  }) async {
-    final currentUserId = _currentUid;
-    final debtRef = _db.collection('debts').doc(debtId);
-
-    // Xây dựng nội dung tin nhắn theo phong cách đã chọn
-    final String body;
-    final String formattedAmt = formatVnd(amount);
-
-    switch (style) {
-      case 'funny':
-        body =
-            'Hôm nay trời nhẹ lên cao, mình buồn không hiểu vì sao... bạn chưa chuyển $formattedAmt? 🥺';
-        break;
-      case 'gentle':
-        body =
-            'Ghé SplitPay thanh toán nốt $formattedAmt cho $creditorName để sổ nợ về 0 nào bạn ơi! ☕';
-        break;
-      case 'polite':
-      default:
-        body =
-            '$creditorName gửi lời nhắc thanh toán khoản nợ $formattedAmt. Bạn tranh thủ chuyển nhé! 🔔';
-        break;
-    }
-
-    // 1. Kiểm tra Rate Limit 24h từ SharedPreferences cục bộ trước (phòng thủ không cần mạng)
-    final prefs = await SharedPreferences.getInstance();
-    final localMs = prefs.getInt('splitpay_last_reminder_$debtId');
-    if (localMs != null) {
-      final lastDate = DateTime.fromMillisecondsSinceEpoch(localMs);
-      final diff = DateTime.now().difference(lastDate);
-      if (diff.inHours < 24) {
-        final hoursLeft = 24 - diff.inHours;
-        final waitMsg = hoursLeft > 0 ? '$hoursLeft giờ' : 'ít phút';
-        throw StateError(
-          'Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $waitMsg.',
-        );
-      }
-    }
-
-    // 2. Cố gắng kiểm tra tính hợp lệ và Rate Limit từ Firestore (nếu có kết nối và quyền)
-    try {
-      final debtSnap = await debtRef.get();
-      final debtData = debtSnap.data();
-      if (debtData != null) {
-        final balance = (debtData['balance'] as num?)?.toInt() ?? 0;
-        final userA = debtData['userA'] as String? ?? '';
-        final isUserA = currentUserId == userA;
-        final iAmCreditor = isUserA ? balance < 0 : balance > 0;
-        if (!iAmCreditor) {
-          throw StateError('Chỉ chủ nợ mới có quyền gửi lời nhắc.');
-        }
-
-        final lastReminder = debtData['lastReminderAt'];
-        if (lastReminder is Timestamp) {
-          final diff = DateTime.now().difference(lastReminder.toDate());
-          if (diff.inHours < 24) {
-            final hoursLeft = 24 - diff.inHours;
-            final waitMsg = hoursLeft > 0 ? '$hoursLeft giờ' : 'ít phút';
-            throw StateError(
-              'Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $waitMsg.',
-            );
-          }
-        }
-      }
-    } catch (e) {
-      if (e is StateError) rethrow;
-      debugPrint('sendDebtReminder: verify debt data skipped ($e)');
-    }
-
-    // 3. Cố gắng ghi thông báo vào hộp thư Cloud Firestore (nếu rules trên cloud cho phép)
-    try {
-      final newNotifId = const Uuid().v4();
-      final notifRef = _db
-          .collection('users')
-          .doc(targetUid)
-          .collection('notifications')
-          .doc(newNotifId);
-
-      await notifRef.set({
-        'title': '💌 Lời nhắc thanh toán từ $creditorName',
-        'body': body,
-        'type': NotificationType.debtReminder.name,
-        'targetDebtId': debtId,
-        'isRead': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-
-      try {
-        await debtRef.update({'lastReminderAt': FieldValue.serverTimestamp()});
-      } catch (e) {
-        debugPrint('sendDebtReminder: update lastReminderAt skipped ($e)');
-      }
-    } catch (e) {
-      debugPrint('sendDebtReminder: cloud notification write skipped ($e)');
-    }
-
-    // 4. Ghi mốc thời gian nhắc nợ cục bộ (SharedPreferences) để bảo đảm rate limit 24h
-    try {
-      await prefs.setInt(
-        'splitpay_last_reminder_$debtId',
-        DateTime.now().millisecondsSinceEpoch,
-      );
-    } catch (_) {}
-
-    return body;
-  }
 }
 
 final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
   return NotificationRepository(
     ref.watch(firestoreProvider),
-    ref.watch(authProvider),
   );
 });
 
@@ -280,7 +153,7 @@ final userNotificationsProvider = StreamProvider.autoDispose
               id: notifId,
               title: '🤝 Khoản tiền cho vay',
               body:
-                  'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết hoặc gửi lời nhắc!',
+                  'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết!',
               type: NotificationType.debtReminder,
               targetDebtId: debtDocId,
               isRead: readIds.contains(notifId),
