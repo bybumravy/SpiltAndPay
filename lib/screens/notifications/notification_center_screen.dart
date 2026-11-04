@@ -52,70 +52,84 @@ class NotificationCenterScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: notificationsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.notifications_none,
-                  size: 64,
-                  color: Colors.grey.shade400,
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Bạn chưa có thông báo nào.',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  e.toString().contains('permission-denied')
-                      ? 'Lưu ý: Cần Publish firestore.rules lên Firebase Console của nhóm để đồng bộ realtime.'
-                      : 'Lỗi: $e',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ],
-            ),
-          ),
-        ),
-        data: (notifications) {
-          if (notifications.isEmpty) {
-            return Center(
+      body: RefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(userNotificationsProvider(user.uid));
+        },
+        child: notificationsAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.notifications_off_outlined,
+                    Icons.notifications_none,
                     size: 64,
                     color: Colors.grey.shade400,
                   ),
                   const SizedBox(height: 16),
                   const Text(
                     'Bạn chưa có thông báo nào.',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    e.toString().contains('permission-denied')
+                        ? 'Lưu ý: Cần Publish firestore.rules lên Firebase Console của nhóm để đồng bộ realtime.'
+                        : 'Lỗi: $e',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ],
               ),
-            );
-          }
-
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: notifications.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final notif = notifications[index];
-              return _NotificationTile(
-                notification: notif,
-                currentUid: user.uid,
+            ),
+          ),
+          data: (notifications) {
+            if (notifications.isEmpty) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.7,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.notifications_off_outlined,
+                            size: 64,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Bạn chưa có thông báo nào.',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               );
-            },
-          );
-        },
+            }
+
+            return ListView.separated(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              itemCount: notifications.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final notif = notifications[index];
+                return _NotificationTile(
+                  notification: notif,
+                  currentUid: user.uid,
+                );
+              },
+            );
+          },
+        ),
       ),
     );
   }
@@ -133,7 +147,9 @@ class _NotificationTile extends ConsumerWidget {
   IconData _getIcon() {
     switch (notification.type) {
       case NotificationType.debtReminder:
-        return Icons.forward_to_inbox;
+        return notification.title.contains('cho vay')
+            ? Icons.volunteer_activism
+            : Icons.forward_to_inbox;
       case NotificationType.sessionClosed:
         return Icons.receipt_long;
       case NotificationType.paymentPending:
@@ -146,7 +162,9 @@ class _NotificationTile extends ConsumerWidget {
   Color _getColor() {
     switch (notification.type) {
       case NotificationType.debtReminder:
-        return Colors.orange.shade700;
+        return notification.title.contains('cho vay')
+            ? Colors.teal.shade700
+            : Colors.orange.shade700;
       case NotificationType.sessionClosed:
         return Colors.blue.shade700;
       case NotificationType.paymentPending:
@@ -212,6 +230,16 @@ class _NotificationTile extends ConsumerWidget {
             ),
           ),
         );
+        return;
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Không tìm thấy phiên chia tiền hoặc phiên đã kết thúc.',
+            ),
+          ),
+        );
+        return;
       }
     }
   }

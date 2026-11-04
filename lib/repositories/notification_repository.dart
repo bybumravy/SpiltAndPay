@@ -1,17 +1,15 @@
-import 'package:shared_preferences/shared_preferences.dart';
-
-import '../models/debt.dart';
-import 'debt_repository.dart';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/firebase_providers.dart';
 import '../core/money.dart';
 import '../models/app_notification.dart';
+import '../models/debt.dart';
+import 'debt_repository.dart';
 
 class NotificationRepository {
   final FirebaseFirestore _db;
@@ -61,6 +59,11 @@ class NotificationRepository {
 
   /// Đánh dấu một thông báo đã đọc
   Future<void> markAsRead(String uid, String notificationId) async {
+    // Nếu là thông báo thông minh được sinh in-memory từ khoản nợ thì không cần gọi Firestore
+    if (notificationId.startsWith('debt_need_pay_') ||
+        notificationId.startsWith('debt_lend_')) {
+      return;
+    }
     try {
       await _notifCol(uid).doc(notificationId).update({'isRead': true});
     } catch (e) {
@@ -119,41 +122,52 @@ class NotificationRepository {
         break;
     }
 
-    final debtSnap = await debtRef.get();
-    final debtData = debtSnap.data();
-    if (debtData == null) throw StateError('Không tìm thấy khoản nợ.');
-
-    // Kiểm tra người gọi phải là chủ nợ
-    final balance = (debtData['balance'] as num).toInt();
-    final isUserA = currentUserId == debtData['userA'];
-    final iAmCreditor = isUserA ? balance < 0 : balance > 0;
-    if (!iAmCreditor) {
-      throw StateError('Chỉ chủ nợ mới có quyền gửi lời nhắc.');
-    }
-
-    // Kiểm tra Rate Limit 24h (từ Firestore hoặc local SharedPreferences)
-    final lastReminder = debtData['lastReminderAt'];
-    DateTime? lastDate;
-    if (lastReminder is Timestamp) {
-      lastDate = lastReminder.toDate();
-    } else {
-      final prefs = await SharedPreferences.getInstance();
-      final localMs = prefs.getInt('splitpay_last_reminder_$debtId');
-      if (localMs != null) {
-        lastDate = DateTime.fromMillisecondsSinceEpoch(localMs);
-      }
-    }
-    if (lastDate != null) {
+    // 1. Kiểm tra Rate Limit 24h từ SharedPreferences cục bộ trước (phòng thủ không cần mạng)
+    final prefs = await SharedPreferences.getInstance();
+    final localMs = prefs.getInt('splitpay_last_reminder_$debtId');
+    if (localMs != null) {
+      final lastDate = DateTime.fromMillisecondsSinceEpoch(localMs);
       final diff = DateTime.now().difference(lastDate);
       if (diff.inHours < 24) {
         final hoursLeft = 24 - diff.inHours;
+        final waitMsg = hoursLeft > 0 ? '$hoursLeft giờ' : 'ít phút';
         throw StateError(
-          'Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $hoursLeft giờ.',
+          'Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $waitMsg.',
         );
       }
     }
 
-    // 1. Cố gắng ghi thông báo vào hộp thư Cloud Firestore (nếu rules trên cloud cho phép)
+    // 2. Cố gắng kiểm tra tính hợp lệ và Rate Limit từ Firestore (nếu có kết nối và quyền)
+    try {
+      final debtSnap = await debtRef.get();
+      final debtData = debtSnap.data();
+      if (debtData != null) {
+        final balance = (debtData['balance'] as num?)?.toInt() ?? 0;
+        final userA = debtData['userA'] as String? ?? '';
+        final isUserA = currentUserId == userA;
+        final iAmCreditor = isUserA ? balance < 0 : balance > 0;
+        if (!iAmCreditor) {
+          throw StateError('Chỉ chủ nợ mới có quyền gửi lời nhắc.');
+        }
+
+        final lastReminder = debtData['lastReminderAt'];
+        if (lastReminder is Timestamp) {
+          final diff = DateTime.now().difference(lastReminder.toDate());
+          if (diff.inHours < 24) {
+            final hoursLeft = 24 - diff.inHours;
+            final waitMsg = hoursLeft > 0 ? '$hoursLeft giờ' : 'ít phút';
+            throw StateError(
+              'Bạn vừa gửi lời nhắc gần đây. Vui lòng thử lại sau $waitMsg.',
+            );
+          }
+        }
+      }
+    } catch (e) {
+      if (e is StateError) rethrow;
+      debugPrint('sendDebtReminder: verify debt data skipped ($e)');
+    }
+
+    // 3. Cố gắng ghi thông báo vào hộp thư Cloud Firestore (nếu rules trên cloud cho phép)
     try {
       final newNotifId = const Uuid().v4();
       final notifRef = _db
@@ -180,9 +194,8 @@ class NotificationRepository {
       debugPrint('sendDebtReminder: cloud notification write skipped ($e)');
     }
 
-    // 2. Ghi mốc thời gian nhắc nợ cục bộ (SharedPreferences) để bảo đảm rate limit 24h
+    // 4. Ghi mốc thời gian nhắc nợ cục bộ (SharedPreferences) để bảo đảm rate limit 24h
     try {
-      final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(
         'splitpay_last_reminder_$debtId',
         DateTime.now().millisecondsSinceEpoch,
@@ -247,7 +260,7 @@ final userNotificationsProvider = StreamProvider.autoDispose
         final debtDocId = Debt.docId(debt.userA, debt.userB);
 
         if (owed > 0) {
-          final notifId = 'debt_need_pay_$debtDocId';
+          final notifId = 'debt_need_pay_${debtDocId}_${debt.balance}';
           smartNotifs.add(
             AppNotification(
               id: notifId,
@@ -261,7 +274,7 @@ final userNotificationsProvider = StreamProvider.autoDispose
             ),
           );
         } else if (owed < 0) {
-          final notifId = 'debt_lend_$debtDocId';
+          final notifId = 'debt_lend_${debtDocId}_${debt.balance}';
           smartNotifs.add(
             AppNotification(
               id: notifId,
