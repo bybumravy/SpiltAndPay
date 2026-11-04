@@ -141,6 +141,42 @@ void main() {
     },
   );
 
+  testWidgets(
+    'member load errors can be retried without reopening the session',
+    (tester) async {
+      var attempts = 0;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            userSessionsProvider('creator')
+                .overrideWith((ref) => Stream.value([_session])),
+            sessionMembersProvider('session-1').overrideWith((ref) {
+              attempts++;
+              return attempts == 1
+                  ? Stream<List<SessionMember>>.error(
+                      StateError('permission-denied'),
+                    )
+                  : Stream.value([_creator]);
+            }),
+            sessionExpensesProvider('session-1')
+                .overrideWith((ref) => Stream.value([_expense])),
+            sessionGuestObligationsProvider('session-1')
+                .overrideWith((ref) => Stream.value([])),
+          ],
+          child: MaterialApp(
+            home: SessionDetailScreen(session: _session, currentUid: 'creator'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Không tải được thành viên'), findsOneWidget);
+      await tester.tap(find.text('Thử lại'));
+      await tester.pumpAndSettle();
+      expect(attempts, 2);
+      expect(find.text('Thành viên'), findsOneWidget);
+      expect(find.textContaining('Không tải được thành viên'), findsNothing);
+    },
+  );
 
   testWidgets(
     'adding an expense defaults payer to creator and participants to all members',

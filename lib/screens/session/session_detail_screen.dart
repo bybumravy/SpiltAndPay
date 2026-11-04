@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../core/image_tools.dart';
+import 'create_session_screen.dart';
 import '../../core/money.dart';
 import '../../core/vietqr.dart';
 import '../../core/vietqr_provider.dart';
@@ -28,6 +29,22 @@ class SessionDetailScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final sessions = ref.watch(userSessionsProvider(currentUid)).valueOrNull;
+    if (sessions != null &&
+        currentUid != session.creatorId &&
+        !sessions.any((s) => s.sessionId == session.sessionId)) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Phiên')),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'Phiên đã bị xoá hoặc bạn không còn là thành viên.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      );
+    }
     final currentSession =
         sessions?.firstWhere(
           (s) => s.sessionId == session.sessionId,
@@ -63,12 +80,41 @@ class SessionDetailScreen extends ConsumerWidget {
               currentSession.status == SessionStatus.open)
             PopupMenuButton<String>(
               onSelected: (val) {
+                if (val == 'all') {
+                  final members = membersAsync.valueOrNull;
+                  final expenses = expensesAsync.valueOrNull;
+                  if (members == null || expenses == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Chờ tải thành viên và khoản chi trước khi sửa.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) => CreateSessionScreen(
+                        creatorUid: currentUid,
+                        initialSession: currentSession,
+                        initialMembers: List.unmodifiable(members),
+                        initialExpenses: List.unmodifiable(expenses),
+                      ),
+                    ),
+                  );
+                }
                 if (val == 'edit') _editTitle(context, ref, currentSession);
                 if (val == 'delete') {
                   _confirmDelete(context, ref, currentSession);
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'all',
+                  child: Text('Chỉnh sửa toàn bộ phiên'),
+                ),
                 if (currentSession.status == SessionStatus.open)
                   const PopupMenuItem(
                     value: 'edit',
@@ -125,10 +171,42 @@ class SessionDetailScreen extends ConsumerWidget {
           Expanded(
             child: membersAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Lỗi: $e')),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Không tải được thành viên: $e',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: () {
+                          ref.invalidate(
+                            sessionMembersProvider(currentSession.sessionId),
+                          );
+                          ref.invalidate(
+                            sessionExpensesProvider(currentSession.sessionId),
+                          );
+                          ref.invalidate(
+                            sessionGuestObligationsProvider(
+                              currentSession.sessionId,
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Thử lại'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               data: (members) => ListView(
                 children: [
                   _ExpenseSection(
+                    session: currentSession,
                     expensesAsync: expensesAsync,
                     members: members,
                     sessionId: currentSession.sessionId,
@@ -150,6 +228,7 @@ class SessionDetailScreen extends ConsumerWidget {
                     for (final member in members)
                       _MemberTile(
                         member: member,
+                        isOpen: currentSession.status == SessionStatus.open,
                         creatorId: currentSession.creatorId,
                         sessionId: currentSession.sessionId,
                         sessionTitle: currentSession.title,
@@ -353,6 +432,7 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
         TextField(
           controller: _amountController,
           keyboardType: TextInputType.number,
+          inputFormatters: [VndInputFormatter()],
           decoration: const InputDecoration(labelText: 'Số tiền (VND)'),
         ),
         DropdownButtonFormField<String>(
@@ -396,7 +476,7 @@ class _AddExpenseDialogState extends State<_AddExpenseDialog> {
       FilledButton(
         onPressed: () {
           final description = _descriptionController.text.trim();
-          final parsedAmount = int.tryParse(_amountController.text.trim());
+          final parsedAmount = parseVndInput(_amountController.text);
           if (description.isNotEmpty &&
               parsedAmount != null &&
               parsedAmount > 0 &&
@@ -434,7 +514,7 @@ class _EditExpenseDialogState extends State<_EditExpenseDialog> {
     text: widget.expense.description,
   );
   late final _amountController = TextEditingController(
-    text: widget.expense.amount.toString(),
+    text: formatVndInput(widget.expense.amount),
   );
   late String _payerId = widget.expense.payerId;
   late final List<String> _participantIds = [...widget.expense.participantIds];
@@ -459,6 +539,7 @@ class _EditExpenseDialogState extends State<_EditExpenseDialog> {
         TextField(
           controller: _amountController,
           keyboardType: TextInputType.number,
+          inputFormatters: [VndInputFormatter()],
           decoration: const InputDecoration(labelText: 'Số tiền (VND)'),
         ),
         DropdownButtonFormField<String>(
@@ -502,7 +583,7 @@ class _EditExpenseDialogState extends State<_EditExpenseDialog> {
       FilledButton(
         onPressed: () {
           final description = _descriptionController.text.trim();
-          final parsedAmount = int.tryParse(_amountController.text.trim());
+          final parsedAmount = parseVndInput(_amountController.text);
           if (description.isNotEmpty &&
               parsedAmount != null &&
               parsedAmount > 0 &&
@@ -530,6 +611,7 @@ class _EditExpenseDialogState extends State<_EditExpenseDialog> {
 }
 
 class _ExpenseSection extends ConsumerWidget {
+  final Session session;
   final AsyncValue<List<Expense>> expensesAsync;
   final List<SessionMember> members;
   final String sessionId;
@@ -537,6 +619,7 @@ class _ExpenseSection extends ConsumerWidget {
   final bool isEditable;
 
   const _ExpenseSection({
+    required this.session,
     required this.expensesAsync,
     required this.members,
     required this.sessionId,
@@ -577,6 +660,19 @@ class _ExpenseSection extends ConsumerWidget {
     WidgetRef ref,
     List<SessionMember> members,
   ) async {
+    if (expensesAsync.valueOrNull?.isEmpty ?? false) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => CreateSessionScreen(
+            creatorUid: creatorId,
+            initialSession: session,
+            initialMembers: List.unmodifiable(members),
+          ),
+        ),
+      );
+      return;
+    }
     final accountMembers = members
         .where((member) => member.userId != null)
         .toList();
@@ -917,6 +1013,7 @@ class _MemberTile extends ConsumerStatefulWidget {
   final bool
   isCreatorView; // creator can use legacy guest controls in legacy sessions
   final bool isItemizedSession;
+  final bool isOpen;
   final String currentUid;
 
   const _MemberTile({
@@ -926,6 +1023,7 @@ class _MemberTile extends ConsumerStatefulWidget {
     required this.sessionTitle,
     required this.isCreatorView,
     required this.isItemizedSession,
+    required this.isOpen,
     required this.currentUid,
   });
 
@@ -1004,6 +1102,9 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
     String subtitle;
     if (isCreator) {
       subtitle = 'Người tạo';
+      if (m.amountPaid > 0) subtitle += ' · đã ứng ${formatVnd(m.amountPaid)}';
+    } else if (widget.isOpen) {
+      subtitle = 'Phần chia tạm tính · chưa chốt';
       if (m.amountPaid > 0) subtitle += ' · đã ứng ${formatVnd(m.amountPaid)}';
     } else if (m.isGuest) {
       subtitle = widget.isItemizedSession
