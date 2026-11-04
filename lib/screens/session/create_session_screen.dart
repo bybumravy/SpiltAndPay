@@ -988,28 +988,13 @@ class _AddMemberSheetState extends ConsumerState<_AddMemberSheet> {
                   try {
                     final userRepo = ref.read(userRepositoryProvider);
                     final otherUser = await userRepo.findByUid(uid);
-                    final currentUser = await userRepo.findByUid(
-                      widget.currentUid,
-                    );
                     if (otherUser != null) {
-                      await userRepo.upsertContact(
-                        widget.currentUid,
-                        otherUser,
-                      );
-                      if (currentUser != null) {
-                        try {
-                          await userRepo.upsertContact(
-                            otherUser.uid,
-                            currentUser,
-                          );
-                        } catch (_) {}
-                      }
                       widget.onAddUser(otherUser);
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              'Đã kết bạn và thêm ${otherUser.name} vào phiên!',
+                              'Đã thêm ${otherUser.name} vào phiên',
                             ),
                           ),
                         );

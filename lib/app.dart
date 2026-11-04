@@ -48,6 +48,7 @@ class AuthGate extends ConsumerWidget {
           previous?.valueOrNull?.uid != next.valueOrNull?.uid) {
         ref.invalidate(currentUserProvider);
         ref.invalidate(contactsProvider);
+        ref.invalidate(friendRequestsProvider);
         ref.invalidate(userSessionsProvider);
         ref.invalidate(sessionMembersProvider);
         ref.invalidate(sessionExpensesProvider);
