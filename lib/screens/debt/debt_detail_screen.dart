@@ -36,13 +36,15 @@ class DebtDetailScreen extends ConsumerWidget {
     final live = debtsAsync.valueOrNull
         ?.where((d) => Debt.docId(d.userA, d.userB) == debtId)
         .firstOrNull;
-    final current = live ??
+    final current =
+        live ??
         (debtsAsync.hasValue
             ? Debt(
                 userA: debt.userA,
                 userB: debt.userB,
                 balance: 0,
-                updatedAt: DateTime.now())
+                updatedAt: DateTime.now(),
+              )
             : debt);
 
     // Từ góc nhìn currentUser: dương = đang nợ, âm = người kia nợ mình.
@@ -52,7 +54,8 @@ class DebtDetailScreen extends ConsumerWidget {
     final otherUid = currentUid == debt.userA ? debt.userB : debt.userA;
 
     final otherUserAsync = ref.watch(currentUserProvider(otherUid));
-    final myName = ref.watch(currentUserProvider(currentUid)).valueOrNull?.name ?? '';
+    final myName =
+        ref.watch(currentUserProvider(currentUid)).valueOrNull?.name ?? '';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Chi tiết nợ')),
@@ -70,8 +73,8 @@ class DebtDetailScreen extends ConsumerWidget {
                     isSettled
                         ? 'Đã thanh toán đủ với ${otherUser?.name ?? otherUid}'
                         : iAmDebtor
-                            ? 'Bạn đang nợ ${otherUser?.name ?? otherUid}'
-                            : '${otherUser?.name ?? otherUid} đang nợ bạn',
+                        ? 'Bạn đang nợ ${otherUser?.name ?? otherUid}'
+                        : '${otherUser?.name ?? otherUid} đang nợ bạn',
                     style: Theme.of(context).textTheme.titleMedium,
                     textAlign: TextAlign.center,
                   ),
@@ -79,9 +82,9 @@ class DebtDetailScreen extends ConsumerWidget {
                   Text(
                     formatVnd(netAmount.abs()),
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          color: iAmDebtor ? Colors.red : Colors.green,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      color: iAmDebtor ? Colors.red : Colors.green,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
@@ -92,8 +95,10 @@ class DebtDetailScreen extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.all(16),
               child: isSettled
-                  ? const Text('Không còn khoản nợ nào.',
-                      style: TextStyle(color: Colors.green))
+                  ? const Text(
+                      'Không còn khoản nợ nào.',
+                      style: TextStyle(color: Colors.green),
+                    )
                   : iAmDebtor
                   ? _DebtorActions(
                       debt: current,
@@ -120,20 +125,29 @@ class DebtDetailScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('Lịch sử thanh toán',
-                    style: Theme.of(context).textTheme.titleSmall),
+                child: Text(
+                  'Lịch sử thanh toán',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
               ),
             ),
             Expanded(
               child: paymentsAsync.when(
-                loading: () =>
-                    const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Lỗi: $e')),
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => const Center(
+                  child: Text(
+                    'Chưa có giao dịch nào',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
                 data: (payments) {
                   if (payments.isEmpty) {
                     return const Center(
-                        child: Text('Chưa có giao dịch nào',
-                            style: TextStyle(color: Colors.grey)));
+                      child: Text(
+                        'Chưa có giao dịch nào',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    );
                   }
                   return ListView.builder(
                     itemCount: payments.length,
@@ -199,16 +213,23 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Đã lưu ảnh QR vào album "SplitPay" trong thư viện ảnh.'),
+            content: const Text(
+              'Đã lưu ảnh QR vào album "SplitPay" trong thư viện ảnh.',
+            ),
             duration: const Duration(seconds: 6),
-            action: SnackBarAction(label: 'Mở thư viện', onPressed: openGallery),
+            action: SnackBarAction(
+              label: 'Mở thư viện',
+              onPressed: openGallery,
+            ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không lưu được ảnh. Kiểm tra mạng và quyền ảnh.')),
+          const SnackBar(
+            content: Text('Không lưu được ảnh. Kiểm tra mạng và quyền ảnh.'),
+          ),
         );
       }
     } finally {
@@ -226,7 +247,10 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
       return buildDynamicVietQr(
         staticPayload,
         amount: widget.netAmount,
-        note: transferNote(debtorName: widget.myName, creditorName: widget.otherName),
+        note: transferNote(
+          debtorName: widget.myName,
+          creditorName: widget.otherName,
+        ),
       );
     } on VietQrException {
       return null;
@@ -236,7 +260,9 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
   Future<void> _markTransferred() async {
     setState(() => _isSending = true);
     try {
-      await ref.read(debtRepositoryProvider).markTransferred(
+      await ref
+          .read(debtRepositoryProvider)
+          .markTransferred(
             debtId: widget.debtId,
             fromUid: widget.currentUid,
             toUid: widget.otherUid,
@@ -244,15 +270,15 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
           );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Đã ghi nhận. Chờ chủ nợ xác nhận.')),
+          const SnackBar(content: Text('Đã ghi nhận. Chờ chủ nợ xác nhận.')),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.')),
+            content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.'),
+          ),
         );
       }
     } finally {
@@ -263,12 +289,16 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
   @override
   Widget build(BuildContext context) {
     // Kiểm tra xem đã có payment pending chưa — nếu có thì khoá nút.
-    final hasPending = ref.watch(paymentsProvider(widget.debtId)).maybeWhen(
-      data: (ps) => ps.any((p) => p.status == PaymentStatus.pending),
-      orElse: () => false,
-    );
+    final hasPending = ref
+        .watch(paymentsProvider(widget.debtId))
+        .maybeWhen(
+          data: (ps) => ps.any((p) => p.status == PaymentStatus.pending),
+          orElse: () => false,
+        );
     // Đọc QR của chủ nợ để dựng mã có sẵn số tiền (watch để màn hình cập nhật khi đọc xong).
-    if (widget.otherQrUrl != null) ref.watch(staticQrPayloadProvider(widget.otherQrUrl!));
+    if (widget.otherQrUrl != null) {
+      ref.watch(staticQrPayloadProvider(widget.otherQrUrl!));
+    }
     final dynamicQr = _dynamicPayload();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -284,9 +314,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                 const Text('Bạn cần chuyển số tiền:'),
                 Text(
                   formatVnd(widget.netAmount),
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
+                  style: Theme.of(context).textTheme.headlineSmall
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -296,7 +324,10 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                     debtorName: widget.myName,
                     creditorName: widget.otherName,
                   ),
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
               ],
             ),
@@ -304,7 +335,10 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
         ),
         const SizedBox(height: 12),
         if (widget.otherQrUrl != null) ...[
-          const Text('QR chuyển tiền:', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            'QR chuyển tiền:',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           if (dynamicQr != null) ...[
             Center(
@@ -330,18 +364,18 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ] else
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: CachedNetworkImage(
-              imageUrl: widget.otherQrUrl!,
-              height: 200,
-              fit: BoxFit.contain,
-              placeholder: (ctx, url) =>
-                  const Center(child: CircularProgressIndicator()),
-              errorWidget: (ctx, url, err) =>
-                  const Icon(Icons.broken_image, size: 64),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: CachedNetworkImage(
+                imageUrl: widget.otherQrUrl!,
+                height: 200,
+                fit: BoxFit.contain,
+                placeholder: (ctx, url) =>
+                    const Center(child: CircularProgressIndicator()),
+                errorWidget: (ctx, url, err) =>
+                    const Icon(Icons.broken_image, size: 64),
+              ),
             ),
-          ),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -382,8 +416,10 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
           ),
           const SizedBox(height: 12),
         ] else
-          const Text('Chủ nợ chưa có QR.',
-              style: TextStyle(color: Colors.grey)),
+          const Text(
+            'Chủ nợ chưa có QR.',
+            style: TextStyle(color: Colors.grey),
+          ),
         if (hasPending)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
@@ -400,7 +436,9 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                   height: 20,
                   width: 20,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : Text(
                   hasPending
@@ -501,7 +539,9 @@ class _PaymentTile extends ConsumerWidget {
 
   Future<void> _confirm(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(debtRepositoryProvider).confirmPayment(
+      await ref
+          .read(debtRepositoryProvider)
+          .confirmPayment(
             debtId: debtId,
             paymentId: payment.paymentId,
             debtorIsUserA: debtorIsUserA,
