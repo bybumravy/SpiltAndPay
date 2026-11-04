@@ -1,4 +1,43 @@
 import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
+
+String formatVndInput(int amount) =>
+    NumberFormat('#,###', 'vi_VN').format(amount);
+
+int? parseVndInput(String text) =>
+    int.tryParse(text.replaceAll('.', '').trim());
+
+class VndInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return const TextEditingValue();
+    final amount = int.tryParse(digits);
+    if (amount == null) return oldValue;
+    final formatted = formatVndInput(amount);
+    final cursor = newValue.selection.extentOffset.clamp(
+      0,
+      newValue.text.length,
+    );
+    final rightDigits = newValue.text
+        .substring(cursor)
+        .replaceAll(RegExp(r'[^0-9]'), '')
+        .length;
+    var offset = formatted.length;
+    var remaining = rightDigits;
+    while (offset > 0 && remaining > 0) {
+      offset--;
+      if (formatted[offset] != '.') remaining--;
+    }
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: offset),
+    );
+  }
+}
 
 /// Format số nguyên VND thành chuỗi "350.000đ".
 String formatVnd(int amount) {
@@ -33,7 +72,8 @@ List<int> computeShares({
   if (customSum > total) {
     throw ArgumentError('Tổng tuỳ chỉnh vượt tổng bill.');
   }
-  final uncustomized = customAmounts.where((v) => v == null).length + 1; // +creator
+  final uncustomized =
+      customAmounts.where((v) => v == null).length + 1; // +creator
   final rest = splitEqual(total - customSum, uncustomized);
   var next = 0;
   return [
