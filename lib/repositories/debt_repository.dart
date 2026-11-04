@@ -14,16 +14,32 @@ class DebtRepository {
       _db.collection('debts');
 
   /// Stream tất cả khoản nợ liên quan [uid] có balance != 0.
-  Stream<List<Debt>> watchUserDebts(String uid) {
-    return _debts
-        .where('participants', arrayContains: uid)
-        .snapshots()
-        .map(
-          (s) => s.docs
+  /// Bổ sung cơ chế auto-retry khi gặp độ trễ đồng bộ Auth token (permission-denied thoáng qua).
+  Stream<List<Debt>> watchUserDebts(String uid) async* {
+    var retryCount = 0;
+    while (true) {
+      try {
+        await for (final s
+            in _debts.where('participants', arrayContains: uid).snapshots()) {
+          retryCount = 0;
+          yield s.docs
               .map((d) => Debt.fromMap(d.data()))
               .where((d) => d.balance != 0)
-              .toList(),
-        );
+              .toList();
+        }
+        break;
+      } catch (e) {
+        if (e.toString().contains('permission-denied') && retryCount < 3) {
+          retryCount++;
+          debugPrint(
+            'watchUserDebts: permission-denied transient, retrying ($retryCount/3)...',
+          );
+          await Future.delayed(const Duration(milliseconds: 600));
+          continue;
+        }
+        rethrow;
+      }
+    }
   }
 
   /// Stream payments (sub-collection) của cặp nợ [debtId].

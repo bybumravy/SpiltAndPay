@@ -26,6 +26,27 @@ class DashboardTab extends ConsumerWidget {
     final user = ref.watch(authProvider).currentUser;
     if (user == null) return const SizedBox.shrink();
 
+    // Tự động thử lại khi gặp độ trễ đồng bộ Auth token trên Firestore
+    ref.listen(userSessionsProvider(user.uid), (previous, next) {
+      if (next.hasError && (previous == null || !previous.hasError)) {
+        if (next.error.toString().contains('permission-denied')) {
+          Future.delayed(const Duration(milliseconds: 600), () {
+            ref.invalidate(userSessionsProvider(user.uid));
+          });
+        }
+      }
+    });
+
+    ref.listen(userDebtsProvider(user.uid), (previous, next) {
+      if (next.hasError && (previous == null || !previous.hasError)) {
+        if (next.error.toString().contains('permission-denied')) {
+          Future.delayed(const Duration(milliseconds: 600), () {
+            ref.invalidate(userDebtsProvider(user.uid));
+          });
+        }
+      }
+    });
+
     final userProfileAsync = ref.watch(currentUserProvider(user.uid));
     final debtsAsync = ref.watch(userDebtsProvider(user.uid));
     final sessionsAsync = ref.watch(userSessionsProvider(user.uid));
