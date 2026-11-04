@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:forui/forui.dart';
 
 import 'core/firebase_providers.dart';
 import 'repositories/user_repository.dart';
@@ -16,6 +17,10 @@ class SplitPayApp extends StatelessWidget {
     return MaterialApp(
       title: 'Split & Pay',
       debugShowCheckedModeBanner: false,
+      localizationsDelegates: FLocalizations.localizationsDelegates,
+      supportedLocales: FLocalizations.supportedLocales,
+      builder: (context, child) =>
+          FTheme(data: FTheme.neutral.light.touch, child: child!),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6C63FF)),
         useMaterial3: true,

@@ -22,6 +22,14 @@
           }
         },
         {
+          "client_id": "193211348748-puudlceo2d8rub3jgjtrv9lcdo23rvi7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.prm.splitpay",
+            "certificate_hash": "de03df46d113d74d3d02373a16cc19879c2071f9"
+          }
+        },
+        {
           "client_id": "193211348748-ut2fmcnpo50kv90vj0ulu0g4709qf9hm.apps.googleusercontent.com",
           "client_type": 3
         }
