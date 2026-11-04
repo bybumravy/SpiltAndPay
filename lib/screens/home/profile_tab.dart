@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/firebase_providers.dart';
+import '../../ui/app_theme.dart';
 import '../../repositories/auth_repository.dart';
 import '../../repositories/user_repository.dart';
 import '../auth/qr_onboarding_screen.dart';
@@ -54,21 +55,25 @@ class ProfileTab extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Lỗi: $e')),
         data: (user) {
-          if (user == null) return const Center(child: Text('Không tải được hồ sơ'));
+          if (user == null) {
+            return const Center(child: Text('Không tải được hồ sơ'));
+          }
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
             children: [
               // Avatar + tên + email
               Row(
                 children: [
                   CircleAvatar(
-                    radius: 32,
+                    radius: 30,
                     backgroundImage: user.avatarUrl != null
                         ? CachedNetworkImageProvider(user.avatarUrl!)
                         : null,
                     child: user.avatarUrl == null
                         ? Text(
-                            user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
+                            user.name.isNotEmpty
+                                ? user.name[0].toUpperCase()
+                                : '?',
                             style: const TextStyle(fontSize: 24),
                           )
                         : null,
@@ -78,39 +83,88 @@ class ProfileTab extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(user.name,
-                            style: Theme.of(context).textTheme.titleMedium),
-                        Text(user.email,
-                            style: const TextStyle(color: Colors.grey)),
+                        Text(
+                          user.name,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        Text(
+                          user.email,
+                          style: const TextStyle(color: AppTheme.muted),
+                        ),
                       ],
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
 
               // QR nhận tiền
-              Text('QR nhận tiền',
-                  style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              if (user.qrImageUrl != null)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: CachedNetworkImage(
-                    imageUrl: user.qrImageUrl!,
-                    height: 200,
-                    fit: BoxFit.contain,
-                    placeholder: (ctx, url) =>
-                        const Center(child: CircularProgressIndicator()),
-                    errorWidget: (ctx, url, err) =>
-                        const Icon(Icons.broken_image, size: 64),
+              Text(
+                'QR nhận tiền',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 300),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.soft,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: user.qrImageUrl != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: CachedNetworkImage(
+                              imageUrl: user.qrImageUrl!,
+                              height: 220,
+                              fit: BoxFit.contain,
+                              placeholder: (_, _) => const SizedBox(
+                                height: 220,
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                              errorWidget: (_, _, _) => const SizedBox(
+                                height: 220,
+                                child: Center(
+                                  child: Icon(
+                                    Icons.broken_image_outlined,
+                                    size: 48,
+                                    color: AppTheme.muted,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        : const SizedBox(
+                            height: 180,
+                            width: 260,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.qr_code_2,
+                                  size: 48,
+                                  color: AppTheme.purple,
+                                ),
+                                SizedBox(height: 12),
+                                Text(
+                                  'Chưa có QR',
+                                  style: TextStyle(color: AppTheme.muted),
+                                ),
+                              ],
+                            ),
+                          ),
                   ),
                 ),
+              ),
               const SizedBox(height: 8),
               OutlinedButton.icon(
                 icon: const Icon(Icons.swap_horiz),
-                label: const Text('Đổi ảnh QR'),
+                label: const Text('Đổi QR nhận tiền'),
                 onPressed: () async {
                   final changed = await Navigator.push<bool>(
                     context,
@@ -121,13 +175,15 @@ class ProfileTab extends ConsumerWidget {
                   );
                   if (changed == true && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Đã cập nhật QR nhận tiền.')),
+                      const SnackBar(
+                        content: Text('Đã cập nhật QR nhận tiền.'),
+                      ),
                     );
                   }
                 },
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 32),
               const Divider(),
               const SizedBox(height: 8),
 

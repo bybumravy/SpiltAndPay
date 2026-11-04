@@ -107,15 +107,19 @@ void main() {
       expect(find.text('Closed lunch'), findsOneWidget);
       expect(find.textContaining('12'), findsOneWidget);
       expect(find.textContaining('8'), findsOneWidget);
-      await tester.tap(find.text('Đang mở').first);
+      await tester.tap(find.widgetWithText(Tab, 'Đang mở'));
       await tester.pumpAndSettle();
       expect(find.text('Open dinner'), findsOneWidget);
       expect(find.text('Closed lunch'), findsNothing);
 
-      await tester.tap(find.text('Đã đóng'));
+      await tester.tap(find.widgetWithText(Tab, 'Đã đóng'));
       await tester.pumpAndSettle();
       expect(find.text('Open dinner'), findsNothing);
       expect(find.text('Closed lunch'), findsOneWidget);
+      await tester.drag(find.byType(TabBarView), const Offset(500, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Open dinner'), findsOneWidget);
+      expect(find.text('Closed lunch'), findsNothing);
     },
   );
 }
