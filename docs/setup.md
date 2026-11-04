@@ -105,3 +105,16 @@ Không chạy `npm test --prefix rules_test` bên trong một `firebase emulator
 
 - [Cấu trúc code](code-standards.md)
 - [Kiến trúc và bảo mật dữ liệu](system-architecture.md)
+
+## Kiểm thử chỉnh sửa toàn bộ phiên mở trên Android
+
+Mở phiên → menu → **Chỉnh sửa toàn bộ phiên**. Chỉ creator của phiên mở được lưu. Thay đổi thành viên, tên, khoản chi, payer và participants được ghi cùng một transaction; phần đã trả/phải chịu tính lại từ các khoản. Guest không được làm payer. Phiên đóng không sửa; bản sửa cũ bị từ chối nếu dữ liệu đã thay đổi ở nơi khác. Phiên legacy hiển thị cảnh báo chuyển sang chia đều theo từng khoản trước khi lưu.
+
+Integration test chạy repository Flutter thật qua Auth/Firestore Emulator, dùng named Firebase app `demo-splitpay-edit`, không ghi vào project thật:
+
+```sh
+flutter pub get
+rules_test/node_modules/.bin/firebase emulators:exec --project demo-splitpay-edit --config firebase.edit-test.json --only auth,firestore 'flutter test --no-pub integration_test/open_session_edit_test.dart -d emulator-5554'
+```
+
+Cần emulator Android đang chạy. Debug manifest chỉ cho HTTP tới `10.0.2.2` để truy cập emulator Firebase trên máy host. Không chạy đồng thời với Rules tests vì dùng cùng port Firestore. Test bao phủ sửa toàn bộ, đồng bộ member accounting khi sửa khoản riêng, chống stale edit, thu hồi quyền thành viên bị xoá, đóng phiên, payment và guest collection; gồm cả creator chốt nợ giữa hai tài khoản khác mà không đọc số dư riêng của họ.
