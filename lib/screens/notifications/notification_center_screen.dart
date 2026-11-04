@@ -11,11 +11,20 @@ import '../../repositories/session_repository.dart';
 import '../debt/debt_detail_screen.dart';
 import '../session/session_detail_screen.dart';
 
-class NotificationCenterScreen extends ConsumerWidget {
+class NotificationCenterScreen extends ConsumerStatefulWidget {
   const NotificationCenterScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationCenterScreen> createState() =>
+      _NotificationCenterScreenState();
+}
+
+class _NotificationCenterScreenState
+    extends ConsumerState<NotificationCenterScreen> {
+  bool _showHidden = false;
+
+  @override
+  Widget build(BuildContext context) {
     final user = ref.watch(authProvider).currentUser;
     if (user == null) {
       return const Scaffold(
@@ -29,26 +38,62 @@ class NotificationCenterScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Hộp thư thông báo'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.done_all),
-            tooltip: 'Đánh dấu tất cả đã đọc',
-            onPressed: () async {
-              final notifs =
-                  ref.read(userNotificationsProvider(user.uid)).valueOrNull ??
-                  [];
-              final ids = notifs.map((n) => n.id).toList();
-              await ref
-                  .read(readNotificationIdsProvider.notifier)
-                  .markAllRead(ids);
-              await ref
-                  .read(notificationRepositoryProvider)
-                  .markAllAsRead(user.uid);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Đã đánh dấu tất cả đã đọc.')),
-                );
-              }
+          notificationsAsync.maybeWhen(
+            data: (notifications) {
+              final activeNotifications = notifications
+                  .where((n) => !n.isRead || !n.canDismissOnRead)
+                  .toList();
+              final hiddenNotifications = notifications
+                  .where((n) => n.isRead && n.canDismissOnRead)
+                  .toList();
+
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (hiddenNotifications.isNotEmpty)
+                    IconButton(
+                      icon: Icon(
+                        _showHidden ? Icons.visibility_off : Icons.history,
+                      ),
+                      tooltip: _showHidden
+                          ? 'Chỉ hiện thông báo cần xử lý'
+                          : 'Xem ${hiddenNotifications.length} thông báo đã ẩn',
+                      onPressed: () =>
+                          setState(() => _showHidden = !_showHidden),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.done_all),
+                    tooltip: 'Đánh dấu tất cả đã đọc (Ẩn các thông báo đã xong)',
+                    onPressed: () async {
+                      final dismissableIds = activeNotifications
+                          .where((n) => n.canDismissOnRead)
+                          .map((n) => n.id)
+                          .toList();
+                      await ref
+                          .read(readNotificationIdsProvider.notifier)
+                          .markAllRead(dismissableIds);
+                      await ref
+                          .read(notificationRepositoryProvider)
+                          .markAllAsRead(user.uid);
+                      if (context.mounted) {
+                        final hasUnpaidDebt =
+                            activeNotifications.any((n) => !n.canDismissOnRead);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              hasUnpaidDebt
+                                  ? 'Đã ẩn các thông báo đã đọc. Khoản nợ chưa thanh toán không thể ẩn.'
+                                  : 'Đã ẩn tất cả thông báo đã đọc.',
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              );
             },
+            orElse: () => const SizedBox.shrink(),
           ),
         ],
       ),
@@ -87,7 +132,17 @@ class NotificationCenterScreen extends ConsumerWidget {
             ),
           ),
           data: (notifications) {
-            if (notifications.isEmpty) {
+            final activeNotifications = notifications
+                .where((n) => !n.isRead || !n.canDismissOnRead)
+                .toList();
+            final hiddenNotifications = notifications
+                .where((n) => n.isRead && n.canDismissOnRead)
+                .toList();
+
+            final displayList =
+                _showHidden ? notifications : activeNotifications;
+
+            if (displayList.isEmpty) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
@@ -103,10 +158,27 @@ class NotificationCenterScreen extends ConsumerWidget {
                             color: Colors.grey.shade400,
                           ),
                           const SizedBox(height: 16),
-                          const Text(
-                            'Bạn chưa có thông báo nào.',
-                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          Text(
+                            hiddenNotifications.isNotEmpty && !_showHidden
+                                ? 'Đã xử lý hết thông báo!\n(Có ${hiddenNotifications.length} thông báo đã ẩn)'
+                                : 'Bạn chưa có thông báo nào.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 16,
+                            ),
                           ),
+                          if (hiddenNotifications.isNotEmpty && !_showHidden) ...[
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: () =>
+                                  setState(() => _showHidden = true),
+                              icon: const Icon(Icons.history, size: 18),
+                              label: Text(
+                                'Xem ${hiddenNotifications.length} thông báo đã ẩn',
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -118,10 +190,10 @@ class NotificationCenterScreen extends ConsumerWidget {
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: notifications.length,
+              itemCount: displayList.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, index) {
-                final notif = notifications[index];
+                final notif = displayList[index];
                 return _NotificationTile(
                   notification: notif,
                   currentUid: user.uid,
@@ -145,6 +217,9 @@ class _NotificationTile extends ConsumerWidget {
   });
 
   IconData _getIcon() {
+    if (!notification.canDismissOnRead) {
+      return Icons.warning_amber_rounded;
+    }
     switch (notification.type) {
       case NotificationType.debtReminder:
         return notification.title.contains('cho vay')
@@ -160,6 +235,9 @@ class _NotificationTile extends ConsumerWidget {
   }
 
   Color _getColor() {
+    if (!notification.canDismissOnRead) {
+      return Colors.red.shade700;
+    }
     switch (notification.type) {
       case NotificationType.debtReminder:
         return notification.title.contains('cho vay')
@@ -175,8 +253,8 @@ class _NotificationTile extends ConsumerWidget {
   }
 
   Future<void> _handleTap(BuildContext context, WidgetRef ref) async {
-    // 1. Đánh dấu đã đọc
-    if (!notification.isRead) {
+    // 1. Nếu là thông báo được phép ẩn khi đọc thì đánh dấu đã đọc
+    if (notification.canDismissOnRead && !notification.isRead) {
       await ref
           .read(readNotificationIdsProvider.notifier)
           .markRead(notification.id);
@@ -271,7 +349,25 @@ class _NotificationTile extends ConsumerWidget {
               ),
             ),
           ),
-          if (!notification.isRead)
+          if (!notification.canDismissOnRead)
+            Container(
+              margin: const EdgeInsets.only(left: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red.shade100,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.red.shade400, width: 0.8),
+              ),
+              child: Text(
+                'CHƯA TRẢ',
+                style: TextStyle(
+                  color: Colors.red.shade800,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            )
+          else if (!notification.isRead)
             Container(
               width: 8,
               height: 8,

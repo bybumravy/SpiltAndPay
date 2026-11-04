@@ -28,6 +28,34 @@ class AppNotification {
     required this.createdAt,
   });
 
+  /// Thông báo này có được phép ẩn khi đã đọc hay không?
+  /// - Thông báo nợ chưa trả (`debt_need_pay_`): KHÔNG ĐƯỢC PHÉP ẨN
+  ///   (chỉ được ẩn khi đã xác nhận trả nợ thành công, tức nợ về 0).
+  /// - Thông báo đã xác nhận trả nợ, cho vay, phiên đóng: ĐƯỢC ẨN khi đã đọc.
+  bool get canDismissOnRead => !id.startsWith('debt_need_pay_');
+
+  AppNotification copyWith({
+    String? id,
+    String? title,
+    String? body,
+    NotificationType? type,
+    String? targetDebtId,
+    String? targetSessionId,
+    bool? isRead,
+    DateTime? createdAt,
+  }) {
+    return AppNotification(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      body: body ?? this.body,
+      type: type ?? this.type,
+      targetDebtId: targetDebtId ?? this.targetDebtId,
+      targetSessionId: targetSessionId ?? this.targetSessionId,
+      isRead: isRead ?? this.isRead,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   factory AppNotification.fromMap(String id, Map<String, dynamic> map) {
     return AppNotification(
       id: id,

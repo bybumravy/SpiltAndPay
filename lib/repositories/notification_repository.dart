@@ -49,9 +49,11 @@ class NotificationRepository {
 
   /// Đánh dấu một thông báo đã đọc
   Future<void> markAsRead(String uid, String notificationId) async {
+    // Thông báo nợ chưa trả tuyệt đối không được đánh dấu đã đọc
+    if (notificationId.startsWith('debt_need_pay_')) return;
     // Nếu là thông báo thông minh được sinh in-memory từ khoản nợ thì không cần gọi Firestore
-    if (notificationId.startsWith('debt_need_pay_') ||
-        notificationId.startsWith('debt_lend_')) {
+    if (notificationId.startsWith('debt_lend_') ||
+        notificationId.startsWith('debt_settled_')) {
       return;
     }
     try {
@@ -100,6 +102,8 @@ class ReadNotificationIdsNotifier extends StateNotifier<Set<String>> {
   }
 
   Future<void> markRead(String notifId) async {
+    // Thông báo nợ chưa trả (debt_need_pay_) KHÔNG ĐƯỢC PHÉP ẩn / đánh dấu đã đọc
+    if (notifId.startsWith('debt_need_pay_')) return;
     if (state.contains(notifId)) return;
     final updated = {...state, notifId};
     state = updated;
@@ -108,7 +112,11 @@ class ReadNotificationIdsNotifier extends StateNotifier<Set<String>> {
   }
 
   Future<void> markAllRead(List<String> notifIds) async {
-    final updated = {...state, ...notifIds};
+    // Lọc bỏ các thông báo nợ chưa trả (chỉ ẩn các thông báo được phép như xác nhận trả nợ, cho vay, v.v.)
+    final dismissable =
+        notifIds.where((id) => !id.startsWith('debt_need_pay_')).toList();
+    if (dismissable.isEmpty) return;
+    final updated = {...state, ...dismissable};
     state = updated;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(_key, updated.toList());
@@ -133,6 +141,9 @@ final userNotificationsProvider = StreamProvider.autoDispose
         final debtDocId = Debt.docId(debt.userA, debt.userB);
 
         if (owed > 0) {
+          // 1. Khoản nợ bạn đang nợ chưa trả:
+          // TUYỆT ĐỐI KHÔNG ĐƯỢC ẨN. isRead luôn là false.
+          // CHỈ ĐƯỢC ẨN khi chủ nợ bấm xác nhận (khoản nợ về 0đ).
           final notifId = 'debt_need_pay_${debtDocId}_${debt.balance}';
           smartNotifs.add(
             AppNotification(
@@ -142,11 +153,13 @@ final userNotificationsProvider = StreamProvider.autoDispose
                   'Bạn đang có khoản nợ ${formatVnd(owed)}. Chạm để mở App Ngân hàng chuyển khoản ngay!',
               type: NotificationType.debtReminder,
               targetDebtId: debtDocId,
-              isRead: readIds.contains(notifId),
+              isRead: false, // Luôn luôn là false khi còn nợ!
               createdAt: debt.updatedAt,
             ),
           );
         } else if (owed < 0) {
+          // 2. Khoản tiền bạn đang cho vay:
+          // Bạn là chủ nợ, được đánh dấu đã đọc và ẩn đi khi đã nắm thông tin.
           final notifId = 'debt_lend_${debtDocId}_${debt.balance}';
           smartNotifs.add(
             AppNotification(
@@ -155,6 +168,23 @@ final userNotificationsProvider = StreamProvider.autoDispose
               body:
                   'Bạn đang cho bạn bè vay ${formatVnd(owed.abs())}. Chạm để xem chi tiết!',
               type: NotificationType.debtReminder,
+              targetDebtId: debtDocId,
+              isRead: readIds.contains(notifId),
+              createdAt: debt.updatedAt,
+            ),
+          );
+        } else if (debt.balance == 0) {
+          // 3. Khoản nợ đã xác nhận trả nợ thành công (đã hòa / balance == 0):
+          // Thông báo xác nhận thành công này CÓ THỂ được đánh dấu đã đọc và ẨN ĐI.
+          final notifId =
+              'debt_settled_${debtDocId}_${debt.updatedAt.millisecondsSinceEpoch}';
+          smartNotifs.add(
+            AppNotification(
+              id: notifId,
+              title: '✅ Đã xác nhận trả nợ thành công',
+              body:
+                  'Khoản nợ giữa hai bên đã được xác nhận thanh toán đủ (số dư về 0đ).',
+              type: NotificationType.paymentConfirmed,
               targetDebtId: debtDocId,
               isRead: readIds.contains(notifId),
               createdAt: debt.updatedAt,

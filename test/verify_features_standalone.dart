@@ -157,19 +157,27 @@ void main() {
     notifModelCode.contains('paymentPending') &&
     notifModelCode.contains('paymentConfirmed')
   );
+  assertTest('6.3. Quy tắc canDismissOnRead (Khoản nợ chưa trả KHÔNG được phép ẩn)',
+    notifModelCode.contains('canDismissOnRead') &&
+    notifModelCode.contains("!id.startsWith('debt_need_pay_')")
+  );
 
-  stdout.writeln('\n--- NHÓM 7: CẢNH BÁO CÔNG NỢ THỜI GIAN THỰC & ĐÃ ĐỌC ---');
+  stdout.writeln('\n--- NHÓM 7: CẢNH BÁO CÔNG NỢ THỜI GIAN THỰC & CƠ CHẾ ẨN THÔNG BÁO ---');
   final notifRepoFile = File('lib/repositories/notification_repository.dart');
   assertTest('7.1. File lib/repositories/notification_repository.dart tồn tại', notifRepoFile.existsSync());
 
   final notifRepoCode = notifRepoFile.readAsStringSync();
-  assertTest('7.2. Phân hệ sinh cảnh báo thông minh cho khoản nợ cần trả',
+  assertTest('7.2. Phân hệ sinh cảnh báo thông minh cho khoản nợ cần trả (luôn unread)',
     notifRepoCode.contains('debt_need_pay_') &&
-    notifRepoCode.contains('userNotificationsProvider')
+    notifRepoCode.contains('isRead: false')
   );
-  assertTest('7.3. Hỗ trợ cơ chế đánh dấu đã đọc (markAsRead & markAllAsRead)',
-    notifRepoCode.contains('markAsRead') &&
-    notifRepoCode.contains('markAllAsRead')
+  assertTest('7.3. Sinh thông báo xác nhận trả nợ thành công khi balance == 0 (debt_settled_)',
+    notifRepoCode.contains('debt_settled_') &&
+    notifRepoCode.contains('debt.balance == 0')
+  );
+  assertTest('7.4. Cơ chế markRead và markAllRead bảo vệ khoản nợ chưa trả khỏi bị ẩn',
+    notifRepoCode.contains("notifId.startsWith('debt_need_pay_')") &&
+    notifRepoCode.contains('markAllRead')
   );
 
   stdout.writeln('\n--- NHÓM 8: FIRESTORE RULES BẢO MẬT THÔNG BÁO ---');
