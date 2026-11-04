@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Đại diện cấu hình của một ứng dụng ngân hàng / ví điện tử được hỗ trợ.
@@ -158,17 +157,12 @@ class BankingAppService {
     return [...installed, ...notInstalled];
   }
 
-  /// Mở ứng dụng ngân hàng và tự động sao chép nội dung chuyển khoản vào Clipboard.
+  /// Mở ứng dụng ngân hàng được chọn (mã VietQR động đã tích hợp sẵn số tiền & nội dung).
   static Future<bool> openBankApp({
     required BankAppInfo bank,
-    required String transferNote,
+    String? transferNote,
   }) async {
-    // 1. Tự động sao chép nội dung chuyển khoản vào Clipboard
-    if (transferNote.isNotEmpty) {
-      await Clipboard.setData(ClipboardData(text: transferNote));
-    }
-
-    // 2. Thử kích hoạt App Scheme (ưu tiên scheme chính, sau đó thử các alternative schemes)
+    // 1. Thử kích hoạt App Scheme (ưu tiên scheme chính, sau đó thử các alternative schemes)
     for (final s in bank.allSchemes) {
       try {
         final schemeUri = Uri.parse(s);
@@ -181,7 +175,7 @@ class BankingAppService {
       }
     }
 
-    // 3. Fallback: Mở Google Play Store để cài đặt nếu máy chưa có ứng dụng
+    // 2. Fallback: Mở Google Play Store để cài đặt nếu máy chưa có ứng dụng
     final storeUri = Uri.parse('https://play.google.com/store/apps/details?id=${bank.packageName}');
     if (await canLaunchUrl(storeUri)) {
       return await launchUrl(storeUri, mode: LaunchMode.externalApplication);

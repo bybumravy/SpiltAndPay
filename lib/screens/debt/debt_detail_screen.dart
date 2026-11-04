@@ -391,13 +391,8 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                     backgroundColor: Colors.teal.shade700,
                   ),
                   onPressed: () {
-                    final note = transferNote(
-                      debtorName: widget.myName,
-                      creditorName: widget.otherName,
-                    );
                     BankChooserBottomSheet.show(
                       context,
-                      transferNote: note,
                       amount: widget.netAmount,
                       onSaveQr: () => _saveQr(silent: true),
                     );

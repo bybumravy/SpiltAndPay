@@ -4,22 +4,22 @@ import '../../../../core/banking_service.dart';
 import '../../../../core/money.dart';
 
 class BankChooserBottomSheet extends StatefulWidget {
-  final String transferNote;
   final int amount;
   final Future<void> Function() onSaveQr;
+  final String? transferNote;
 
   const BankChooserBottomSheet({
     super.key,
-    required this.transferNote,
     required this.amount,
     required this.onSaveQr,
+    this.transferNote,
   });
 
   static Future<void> show(
     BuildContext context, {
-    required String transferNote,
     required int amount,
     required Future<void> Function() onSaveQr,
+    String? transferNote,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -28,9 +28,9 @@ class BankChooserBottomSheet extends StatefulWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => BankChooserBottomSheet(
-        transferNote: transferNote,
         amount: amount,
         onSaveQr: onSaveQr,
+        transferNote: transferNote,
       ),
     );
   }
@@ -51,7 +51,6 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
 
   Future<void> _handleBankSelect(BankAppInfo bank) async {
     final messenger = ScaffoldMessenger.of(context);
-    final note = widget.transferNote;
 
     Navigator.pop(context);
 
@@ -62,18 +61,17 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
 
     final success = await BankingAppService.openBankApp(
       bank: bank,
-      transferNote: note,
     );
 
     messenger.showSnackBar(
       SnackBar(
         content: Text(
           success
-              ? 'Đã mở ${bank.shortName}! QR đã tự động lưu vào máy & sao chép nội dung.'
+              ? 'Đã mở ${bank.shortName}! Ảnh QR đã được lưu vào thư viện để quét.'
               : 'Không mở được ứng dụng. Vui lòng kiểm tra lại.',
         ),
         backgroundColor: success ? Colors.teal.shade800 : Colors.red.shade700,
-        duration: const Duration(seconds: 5),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
@@ -123,9 +121,9 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
               ),
               const SizedBox(height: 12),
 
-              // Banner tự động hóa 1-chạm
+              // Banner thông tin VietQR động
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: Colors.teal.shade50,
                   borderRadius: BorderRadius.circular(10),
@@ -133,28 +131,16 @@ class _BankChooserBottomSheetState extends State<BankChooserBottomSheet> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.auto_awesome, size: 18, color: Colors.teal.shade800),
-                    const SizedBox(width: 8),
+                    Icon(Icons.qr_code_scanner, size: 20, color: Colors.teal.shade800),
+                    const SizedBox(width: 10),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Tự động 1-chạm khi chọn ngân hàng:',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.teal.shade900,
-                            ),
-                          ),
-                          Text(
-                            'Lưu ảnh QR vào máy + Copy: "${widget.transferNote}"',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.teal.shade900,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        'Mã VietQR động đã tích hợp sẵn số tiền & nội dung. Khi chọn ngân hàng, mã QR sẽ tự động lưu vào máy để quét.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.teal.shade900,
+                          height: 1.3,
+                        ),
                       ),
                     ),
                   ],
