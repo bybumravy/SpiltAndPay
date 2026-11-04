@@ -28,30 +28,34 @@ class NotificationRepository {
       _db.collection('users').doc(uid).collection('notifications');
 
   /// Lắng nghe danh sách thông báo theo thời gian thực (mới nhất lên đầu)
-  Stream<List<AppNotification>> watchNotifications(String uid) {
-    return _notifCol(uid)
-        .orderBy('createdAt', descending: true)
-        .limit(50)
-        .snapshots()
-        .map((snapshot) => snapshot.docs
+  Stream<List<AppNotification>> watchNotifications(String uid) async* {
+    yield <AppNotification>[];
+    try {
+      await for (final snapshot in _notifCol(uid)
+          .orderBy('createdAt', descending: true)
+          .limit(50)
+          .snapshots()) {
+        yield snapshot.docs
             .map((doc) => AppNotification.fromMap(doc.id, doc.data()))
-            .toList())
-        .handleError((dynamic error) {
-          debugPrint('Notification watch stream error: $error');
-          return <AppNotification>[];
-        });
+            .toList();
+      }
+    } catch (error) {
+      debugPrint('Notification watch stream error: $error');
+    }
   }
 
   /// Đếm số lượng thông báo chưa đọc
-  Stream<int> watchUnreadCount(String uid) {
-    return _notifCol(uid)
-        .where('isRead', isEqualTo: false)
-        .snapshots()
-        .map((snapshot) => snapshot.docs.length)
-        .handleError((dynamic error) {
-          debugPrint('Notification unread count error: $error');
-          return 0;
-        });
+  Stream<int> watchUnreadCount(String uid) async* {
+    yield 0;
+    try {
+      await for (final snapshot in _notifCol(uid)
+          .where('isRead', isEqualTo: false)
+          .snapshots()) {
+        yield snapshot.docs.length;
+      }
+    } catch (error) {
+      debugPrint('Notification unread count error: $error');
+    }
   }
 
   /// Đánh dấu một thông báo đã đọc
@@ -195,7 +199,7 @@ final readNotificationIdsProvider =
 });
 
 final userNotificationsProvider =
-    StreamProvider.family<List<AppNotification>, String>((ref, uid) {
+    StreamProvider.autoDispose.family<List<AppNotification>, String>((ref, uid) {
   final debtsAsync = ref.watch(userDebtsProvider(uid));
   final readIds = ref.watch(readNotificationIdsProvider);
 
@@ -243,7 +247,7 @@ final userNotificationsProvider =
 });
 
 final unreadNotificationCountProvider =
-    Provider.family<AsyncValue<int>, String>((ref, uid) {
+    Provider.autoDispose.family<AsyncValue<int>, String>((ref, uid) {
   final notifsAsync = ref.watch(userNotificationsProvider(uid));
   return notifsAsync.whenData((notifs) => notifs.where((n) => !n.isRead).length);
 });
