@@ -6,11 +6,11 @@ Repository hiện có cấu hình Firebase runtime cho Android. `DefaultFirebase
 
 ## Yêu cầu cục bộ
 
-- Flutter SDK có Dart thỏa ràng buộc `^3.13.3` trong `pubspec.yaml`.
+- Flutter SDK có Dart thỏa ràng buộc trong `pubspec.yaml`.
 - Android SDK và thiết bị/emulator Android.
 - JDK 17; Gradle Android đặt Java/Kotlin target 17.
-- Node.js, npm và Java để chạy Firebase Firestore Emulator tests.
-- Firebase project đã bật Authentication và Cloud Firestore.
+- Node.js 22 cho Functions, npm và Java để chạy Firebase Emulator.
+- Firebase project đã bật Authentication, Cloud Firestore và Cloud Functions cho môi trường dùng thật.
 
 ## Cài dependency và chạy app
 
@@ -23,27 +23,16 @@ flutter run
 
 ## Firebase Authentication
 
-App hỗ trợ email/mật khẩu và Google Sign-In. Với Android, cần:
-
-1. Bật Email/Password và Google provider trong Firebase Authentication.
-2. Đảm bảo package/application ID khớp cấu hình Android.
-3. Thêm SHA-1 của debug/release signing certificate vào Firebase khi dùng Google Sign-In.
-4. Cập nhật file cấu hình Android bằng FlutterFire/Firebase tooling theo quy trình của nhóm.
-
-Không đưa private key, service-account JSON hoặc token vào repository.
+App hỗ trợ email/mật khẩu và Google Sign-In. Với Android cần bật providers tương ứng, khớp package/application ID và thêm SHA-1 signing certificate khi dùng Google Sign-In. Không đưa private key, service-account JSON hoặc token vào repository.
 
 ## Cloudinary và QR nhận tiền
 
-Ảnh QR được upload trực tiếp bằng unsigned Cloudinary upload preset trong `lib/core/cloudinary_service.dart`. Khi dùng môi trường khác, cấu hình cloud name và preset phù hợp; preset phải giới hạn đúng mục đích upload ảnh.
-
-Onboarding chỉ chấp nhận ảnh có payload VietQR NAPAS hợp lệ và dung lượng tối đa 5 MB. `lib/core/dev_mode.dart` có cờ `kDevMode`; giữ `false` trước khi build phát hành vì chế độ dev có thể bỏ qua bước chọn/kiểm tra QR thật.
+Ảnh QR được upload bằng unsigned Cloudinary upload preset trong `lib/core/cloudinary_service.dart`. Cấu hình cloud name/preset phù hợp môi trường và giới hạn preset đúng mục đích upload ảnh. Onboarding yêu cầu VietQR NAPAS hợp lệ, ảnh tối đa 5 MB. Giữ `kDevMode` là `false` trước khi phát hành.
 
 ## Android
 
-- `compileSdk`, `minSdk` và `targetSdk` lấy từ Flutter toolchain.
 - Source/target compatibility và Kotlin JVM target là Java 17.
-- Manifest app khai báo Internet và quyền ghi bộ nhớ chỉ cho Android 9 trở xuống; các plugin camera/thư viện ảnh có thể bổ sung manifest khi build.
-- Release build hiện dùng debug signing config. Phải cấu hình keystore/signing production trước khi phát hành lên store.
+- Release build hiện dùng debug signing config; cấu hình keystore/signing production trước phát hành.
 
 ## Kiểm thử Flutter
 
@@ -51,53 +40,66 @@ Onboarding chỉ chấp nhận ảnh có payload VietQR NAPAS hợp lệ và dun
 flutter test
 ```
 
-Có thể chạy một file hẹp trước, ví dụ:
+Có thể chạy một test file hẹp trước, ví dụ:
 
 ```sh
-flutter test test/core/settlement_test.dart
+flutter test test/core/expense_allocation_test.dart
 ```
 
-Các test chính bao phủ chia tiền, settlement, tối ưu nợ, bảo toàn tiền qua dữ liệu ngẫu nhiên, OCR, VietQR, image helpers và parsing session.
+## Cloud Functions unit tests
 
-## Firestore Rules Emulator
-
-Cài dependency trong `rules_test/`:
+Cài dependencies và chạy suite Node:
 
 ```sh
+npm ci --prefix functions
+npm test --prefix functions
+```
+
+`functions/package.json` định nghĩa `test` là `node --test`. Khi không có `FIRESTORE_EMULATOR_HOST`, các integration tests cần Firestore sẽ được bỏ qua.
+
+## Functions integration với Firestore Emulator
+
+Firebase CLI đã nằm trong dev dependencies của `rules_test`. Sau khi cài cả hai workspace:
+
+```sh
+npm ci --prefix functions
 npm ci --prefix rules_test
 ```
 
-Chạy bộ rules tests:
+Chạy Functions suite dưới Firestore Emulator để kích hoạt integration tests:
 
 ```sh
+npm exec --prefix rules_test -- firebase emulators:exec --only firestore --project demo-splitpay --config firebase.test.json "npm test --prefix functions"
+```
+
+`firebase.test.json` trỏ Rules tới `firestore.rules`, Functions source tới `functions`, dùng Firestore port 8080, Functions port 5001 và tắt Emulator UI. Lệnh trên chỉ cần Firestore vì callable tests gọi handler trực tiếp trong process Node.
+
+## Firestore Rules tests
+
+Script Rules tự khởi động Firestore Emulator:
+
+```sh
+npm ci --prefix rules_test
 npm test --prefix rules_test
 ```
 
-Script dùng Firebase CLI để khởi động Firestore Emulator với:
+Không chạy `npm test --prefix rules_test` bên trong một `firebase emulators:exec` khác; hai lớp sẽ tranh cùng cổng 8080.
 
-- Project demo cục bộ `demo-splitpay`.
-- Rules từ `firestore.rules`.
-- Cấu hình `firebase.test.json`.
-- Cổng Firestore Emulator `8080`; Emulator UI tắt.
+## Deploy Firestore Rules và Functions
 
-Nếu gặp lỗi không tìm thấy `@firebase/rules-unit-testing`, dependency trong `rules_test/` chưa được cài; chạy lại `npm ci --prefix rules_test`.
-
-## Deploy Firestore Rules
-
-`firestore.rules` là nguồn rules trong repository. Xác minh đúng Firebase target trước khi deploy. Repository không định nghĩa CI/CD hoặc lệnh deploy chuẩn của nhóm, vì vậy không tự suy đoán project đích.
-
-Mọi thay đổi schema tiền/nợ phải được kiểm tra đồng thời bằng Flutter tests và Rules Emulator tests trước khi publish rules.
+`firestore.rules` và `functions/` là source trong repository. Xác minh đúng Firebase target trước khi deploy; repository chưa định nghĩa lệnh deploy chuẩn của nhóm, vì vậy không tự suy đoán project đích. Các callable Functions là trusted path cho tạo/sửa khoản, close settlement và guest collection. Không deploy hoặc bật billing chỉ để chạy local tests.
 
 ## Xử lý sự cố nhanh
 
 | Hiện tượng | Kiểm tra |
 |---|---|
-| Google Sign-In thất bại trên Android | Provider đã bật, package ID và SHA-1 đúng. |
-| Không qua onboarding | Ảnh dưới 5 MB, rõ nét và là VietQR NAPAS hợp lệ. |
-| Upload QR thất bại | Mạng, cloud name và unsigned upload preset Cloudinary. |
-| OCR không nhận tổng | Nhập tay; OCR là gợi ý và cần hóa đơn rõ nét. |
-| Rules tests thiếu package | Chạy `npm ci --prefix rules_test`. |
-| Nền tảng ngoài Android báo unsupported | Tạo lại cấu hình bằng FlutterFire cho nền tảng đó. |
+| Google Sign-In thất bại | Provider, package ID và SHA-1 đúng. |
+| Không qua onboarding | Ảnh dưới 5 MB, rõ nét và VietQR NAPAS hợp lệ. |
+| Upload QR thất bại | Mạng, cloud name và unsigned upload preset. |
+| Functions tests thiếu package | Chạy `npm ci --prefix functions`. |
+| Rules/Firebase CLI thiếu package | Chạy `npm ci --prefix rules_test`. |
+| Port Firestore đang bận | Dừng emulator khác trước khi chạy suite. |
+| Nền tảng ngoài Android báo unsupported | Tạo lại cấu hình FlutterFire cho nền tảng đó. |
 
 ## Tham chiếu
 

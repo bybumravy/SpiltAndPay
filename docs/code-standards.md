@@ -4,72 +4,84 @@
 
 | Đường dẫn | Trách nhiệm |
 |---|---|
-| `lib/main.dart`, `lib/app.dart` | Khởi tạo Firebase, Riverpod và điều phối auth/onboarding. |
-| `lib/screens/` | Màn hình xác thực, phiên, công nợ, bạn bè và hồ sơ. |
-| `lib/models/` | Model Firestore và `fromMap`/`toMap`. |
-| `lib/repositories/` | Query, stream, batch và transaction Firestore. |
-| `lib/core/money.dart` | Format VND và phân bổ phần chia. |
-| `lib/core/settlement.dart` | Chuyển `amountPaid`/`amountOwed` thành vị thế ròng. |
-| `lib/core/debt_simplify.dart` | Tối ưu lượt chuyển và fallback cho nhóm lớn. |
-| `lib/core/bill_ocr.dart` | OCR hóa đơn và chọn tổng tiền. |
-| `lib/core/vietqr.dart`, `vietqr_provider.dart` | Kiểm tra và tạo VietQR động. |
-| `lib/core/image_tools.dart` | Tải, render, lưu và chia sẻ ảnh QR/thẻ thanh toán. |
-| `lib/core/cloudinary_service.dart` | Upload ảnh QR lên Cloudinary. |
+| `lib/main.dart`, `lib/app.dart` | Khởi tạo Firebase, Riverpod và auth/onboarding. |
+| `lib/screens/` | UI xác thực, phiên, công nợ, bạn bè và hồ sơ. |
+| `lib/models/` | Model Firestore; `expense.dart` định nghĩa `Expense` và `GuestObligation`. |
+| `lib/repositories/` | Query/stream Firestore và callable Functions. |
+| `lib/core/money.dart` | Format VND và logic chia hiện có. |
+| `lib/core/expense_allocation.dart` | Chia đều từng khoản, remainder theo participant order và preview tổng hợp phiên. |
+| `lib/core/settlement.dart` | Chuyển paid/owed thành vị thế ròng cho logic client/legacy. |
+| `lib/core/debt_simplify.dart` | Bộ tối ưu nợ phía client và fallback cho nhóm lớn. |
+| `functions/index.js` | Export `health`, `createSessionWithExpenses`, `mutateExpense`, `closeSession`, `markGuestObligationCollected`. |
+| `functions/src/expenses/` | Validation, allocation/aggregation, close settlement, guest collection và tests. |
+| `firestore.rules` | Quyền client và các bất biến Firestore. |
 | `test/` | Unit/widget tests Flutter. |
 | `rules_test/` | Firestore Rules tests bằng Node test runner. |
 
 ## Quy ước kiến trúc
 
 - Dùng Riverpod để cấp dependency và stream dữ liệu.
-- Widget điều phối tương tác; repository sở hữu truy cập Firestore; logic tiền thuần đặt trong `lib/core/`.
-- Model dùng số nguyên VND và chuyển đổi rõ ràng giữa object với Firestore map.
-- Ghi nhiều document liên quan dùng batch hoặc transaction; không cập nhật balance bằng các write rời rạc.
-- Giữ tương thích dữ liệu cũ khi thêm field: ví dụ `amountPaid` vắng mặt được đọc là 0.
+- Widget điều phối tương tác; repository sở hữu Firestore/callable access; logic tiền thuần đặt trong `lib/core/` và `functions/src/expenses/`.
+- Dùng số nguyên VND; validate safe integer và amount dương ở expense input.
+- Client tính preview/UI shares, nhưng trusted Functions phải xác thực và tính lại accounting authoritative khi create/mutate/close.
+- Ghi nhiều document liên quan bằng batch/transaction; không ghi rời rạc các output kế toán liên quan.
+- Giữ tương thích schema legacy; thiếu `amountPaid` được xử lý như 0 và session không có expenses dùng nhánh close legacy.
 - Không đưa credential hoặc cấu hình riêng của developer vào code hay tài liệu.
 
-## Bất biến tiền và công nợ
+## Bất biến khoản chi và công nợ
 
-- Tổng phần chia phải bằng tổng bill; không dùng số thực cho tiền.
-- Dữ liệu multi-payer mới phải có tổng `amountPaid == amountOwed`.
-- `Debt.docId` luôn tạo từ hai UID đã sắp xếp.
-- Chiều cập nhật balance phải dùng `Debt.balanceDelta` thay vì tự suy luận dấu ở UI.
-- Mỗi lần đóng phiên tạo entry bất biến; mỗi lần giảm nợ phải đi qua payment được xác nhận.
-- Không cho sửa trực tiếp amount của session member, entry, payment hoặc balance sau khi tạo.
-- Guest không được tạo debt/payment cặp UID.
+- Mỗi expense có payer là account member; guest không thể là payer. Participant IDs phải duy nhất, không rỗng và thuộc session.
+- `participantIds` có thứ tự: chia base đều, rồi cộng từng đồng remainder cho các participant đầu danh sách; tổng shares phải bằng amount.
+- Không coi persisted `shares` từ client là nguồn authoritative; server tính lại từ amount và participant order.
+- Tổng expense amounts phải khớp session `totalAmount`; paid/owed và net positions được tính từ items khi close.
+- Account debts/entries/payments không bao gồm guest UID; guest claim được lưu thành obligation riêng theo payer thực tế.
+- Chỉ payer của guest obligation mới xác nhận `collected`; client không trực tiếp ghi collection state.
+- Debt ID luôn tạo từ hai UID đã sắp xếp; chiều balance phải theo quy ước `userA`/`userB`.
+- Close tạo entry theo session; giảm nợ phải đi qua payment được xác nhận.
 
 ## UI và dịch vụ thiết bị
 
-- OCR là gợi ý: luôn cho người dùng kiểm tra lại số tiền.
-- VietQR phải được parse và kiểm tra CRC trước khi dùng để tạo mã động.
-- Có fallback về ảnh QR tĩnh nếu không đọc được payload.
+- OCR là gợi ý: người dùng luôn kiểm tra số tiền.
+- VietQR phải parse và kiểm tra CRC trước khi tạo mã động; có fallback ảnh QR tĩnh.
 - `kDevMode` chỉ dành cho phát triển và phải là `false` trước khi phát hành.
 - Xử lý bất đồng bộ phải kiểm tra `mounted` trước khi cập nhật UI sau `await`.
 
 ## Kiểm thử
 
-Chạy test Flutter:
+Flutter:
 
 ```sh
 flutter test
 ```
 
-Test hiện bao phủ phân bổ tiền, settlement, tối ưu nợ, luồng tiền ngẫu nhiên, OCR parsing, VietQR, image helpers và model session.
+Functions unit tests:
 
-Chạy Firestore Rules tests sau khi cài dependency Node:
+```sh
+npm ci --prefix functions
+npm test --prefix functions
+```
+
+Functions integration tests dưới Firestore Emulator:
+
+```sh
+npm exec --prefix rules_test -- firebase emulators:exec --only firestore --project demo-splitpay --config firebase.test.json "npm test --prefix functions"
+```
+
+Rules tests riêng; script tự khởi động Firestore Emulator:
 
 ```sh
 npm ci --prefix rules_test
 npm test --prefix rules_test
 ```
 
-Rules tests dùng Firebase Emulator để kiểm tra tạo/đóng/xóa session, quyền đọc, entry/balance, full-balance payment và xác nhận guest.
+`functions/package.json` dùng `node --test`; các integration tests chỉ chạy khi `FIRESTORE_EMULATOR_HOST` có sẵn. `rules_test/package.json` tự bọc `node --test` bằng Firebase CLI. Không lồng `npm test --prefix rules_test` bên trong một `emulators:exec` khác vì script này tự mở emulator.
 
 ## Khi mở rộng
 
-- Viết test thuần cho logic tiền trước khi nối vào widget/repository.
-- Thay đổi schema phải cập nhật model, repository, Firestore Rules và rules tests cùng nhau.
-- Không mô tả schema khoản chi chi tiết như đã tồn tại cho đến khi có model, persistence và UI thực tế.
-- Chạy test hẹp trước, sau đó `flutter test` và rules tests khi thay đổi hợp đồng dữ liệu hoặc bảo mật.
+- Viết test thuần cho allocation/settlement trước khi nối UI hoặc repository; kiểm tra amount nhỏ có remainder, participant order, payer/guest validation và tổng bảo toàn.
+- Thay đổi schema phải cập nhật model, repository, callable validation, Firestore Rules và tests tương ứng.
+- Thay đổi accounting cần Functions unit tests; thay đổi giao tiếp Firestore/Rules cần emulator integration và rules tests.
+- Không dùng client input làm nguồn authoritative cho close settlement.
 
 ## Tham chiếu
 

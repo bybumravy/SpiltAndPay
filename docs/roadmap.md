@@ -4,62 +4,45 @@
 
 ### Tài khoản và danh bạ
 
-- Đăng nhập Google hoặc email/mật khẩu.
-- Onboarding bằng ảnh VietQR và đổi QR nhận tiền trong hồ sơ.
+- Đăng nhập Google/email-mật khẩu, onboarding VietQR và đổi QR trong hồ sơ.
 - Tìm bạn theo email, kết bạn bằng QR UID, lưu danh bạ gần đây.
 
-### Phiên và chia tiền
+### Phiên và khoản chi
 
-- Một tổng bill cho mỗi phiên; nhập tay hoặc OCR trên thiết bị.
-- Chia đều hoặc chia tùy chỉnh ở cấp thành viên.
-- Thành viên có tài khoản, guest và nhiều người cùng ứng tiền.
-- Creator đổi tên/xóa phiên đang mở và đóng phiên một lần.
+- Phiên có một hoặc nhiều khoản chi; mỗi khoản gồm mô tả, amount VND nguyên, account payer và ordered participants.
+- Equal shares được tính từ amount/participant order; remainder được phân bổ theo thứ tự và bảo toàn tổng khoản.
+- UI thêm/sửa/xóa item khi phiên mở, chọn payer/participants, xem shares và đóng phiên có xác nhận.
+- Tổng phiên, member paid/owed, account net positions và guest obligations được tổng hợp từ item.
+- Cloud Functions tin cậy xác thực create/mutate/close và tính lại settlement; client không tự ghi expense/member accounting hoặc guest collection state.
+- Expenses nằm tại `sessions/{sessionId}/expenses/{expenseId}`; guest claims tại `sessions/{sessionId}/guestObligations/{obligationId}`.
+- Phiên legacy không có expense documents vẫn đọc/đóng qua nhánh tương thích.
 
 ### Công nợ và thanh toán
 
-- Settlement từ `amountPaid - amountOwed`.
-- Tối ưu số lượt chuyển chính xác đến 18 số dư khác 0; fallback greedy cho nhóm lớn.
-- Balance cộng dồn theo cặp UID với entry bất biến theo phiên.
-- Payment toàn bộ số dư, chờ chủ nợ xác nhận.
+- Trusted close ghép debtor với creditor, tạo entry theo session và cộng dồn balance theo cặp UID.
+- Matcher server hiện bảo toàn tiền và xác định, nhưng không cam kết số lượt chuyển tối thiểu tuyệt đối.
+- Payment bao phủ toàn bộ số dư và chờ chủ nợ xác nhận.
+- Guest không tạo debt/payment UID pair; payer thực tế xác nhận `collected` trên obligation riêng.
 - VietQR động có số tiền/nội dung, lưu và chia sẻ thẻ thanh toán.
-- Creator nhắc guest và đánh dấu đã thu trong chi tiết phiên.
 
-## Đã duyệt, chưa triển khai: khoản chi chi tiết
-
-Code hiện tại chỉ lưu tổng bill và số phải chịu/đã ứng ở cấp thành viên. Chưa có model, UI, repository hoặc Firestore schema cho từng khoản chi.
-
-Mục tiêu đã duyệt:
-
-1. Cho phép chọn giữa phiên chỉ nhập tổng bill và phiên có danh sách khoản chi.
-2. Mỗi khoản chi tiết lưu mô tả, số tiền, người trả và người tham gia.
-3. Creator là người trả mặc định; có thể chọn thành viên có tài khoản khác cho từng khoản.
-4. Chia đều mỗi khoản cho người tham gia được chọn, bảo toàn phần dư đồng.
-5. Cộng các khoản thành `totalAmount`, `amountPaid` và `amountOwed`, sau đó dùng lại settlement/balance hiện tại.
-6. Guest được tham gia khoản. Mục tiêu UI mới là hiển thị nghĩa vụ guest trong khu vực cần thu của creator; creator tự xác nhận sau khi nhận tiền ngoài app. Không tạo payment hoặc balance giữa UID cho guest.
-7. Phiên cũ và phiên mới chỉ nhập tổng bill tiếp tục hoạt động.
-8. Firestore Rules và tests bảo vệ schema cùng các bất biến tiền mới.
-
-**Phân biệt hiện trạng:** guest hiện chỉ được nhắc và xác nhận “Đã thu” tại chi tiết phiên. Guest chưa xuất hiện trong tab Công nợ.
-
-Chi tiết yêu cầu và tiêu chí nghiệm thu: [Tổng quan dự án và PDR](project-overview-pdr.md).
-
-## Backlog chưa được duyệt cho đợt này
+## Backlog
 
 - Thanh toán một phần.
-- Từ chối hoặc hủy payment pending.
+- Từ chối/hủy payment pending.
 - Nhắc nợ tự động.
 - Chia tùy chỉnh theo từng khoản.
-- Cloud Functions tính lại phân bổ độc lập phía server.
+- Tối ưu số lượt chuyển ở trusted server nếu đây là yêu cầu phát hành.
 - Hỗ trợ nền tảng ngoài Android.
 - OCR đa tiền tệ ngoài VND.
 
 ## Điều kiện trước khi phát hành production
 
 - Cấu hình Android release signing bằng keystore production thay cho debug key.
-- Chạy `flutter test` và Firestore Rules Emulator tests sau khi cài đủ dependency.
-- Xác minh Firebase target, Google Sign-In SHA-1 và Cloudinary upload preset cho môi trường phát hành.
+- Chạy Flutter, Functions unit/integration và Rules tests theo [hướng dẫn setup](setup.md).
+- Xác minh Firebase target, Google Sign-In SHA-1, Cloud Functions runtime và Cloudinary upload preset cho môi trường phát hành.
 
 ## Tham chiếu
 
+- [Tổng quan và PDR](project-overview-pdr.md)
 - [Kiến trúc hiện tại](system-architecture.md)
 - [Thiết lập và kiểm thử](setup.md)

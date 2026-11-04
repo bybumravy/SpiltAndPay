@@ -2,109 +2,89 @@
 
 ## Tổng quan runtime
 
-`lib/main.dart` khởi tạo Firebase rồi chạy ứng dụng trong Riverpod `ProviderScope`. `AuthGate` theo dõi Firebase Auth và hồ sơ Firestore để điều phối:
+`lib/main.dart` khởi tạo Firebase rồi chạy ứng dụng trong Riverpod `ProviderScope`. `AuthGate` điều phối đăng nhập, onboarding VietQR và màn hình chính. Flutter client dùng Firebase Auth, Firestore và callable Cloud Functions; Functions dùng Admin SDK làm trusted writer cho các chuyển đổi kế toán của khoản chi.
 
-1. Chưa đăng nhập → màn hình đăng nhập email/mật khẩu hoặc Google.
-2. Đã đăng nhập nhưng chưa có QR nhận tiền → onboarding VietQR.
-3. Hồ sơ đã có QR → màn hình chính gồm Phiên, Công nợ và Hồ sơ.
-
-Cấu hình Firebase sinh bởi FlutterFire hiện chỉ trả về options cho Android; các nền tảng khác ném `UnsupportedError`.
+Cấu hình Firebase Flutter hiện chỉ trả options cho Android; nền tảng khác ném `UnsupportedError`.
 
 ## Các tầng chính
 
 | Tầng | Trách nhiệm |
 |---|---|
 | `lib/screens/` | UI và điều phối tương tác người dùng. |
-| `lib/models/` | Model ứng dụng và chuyển đổi dữ liệu Firestore. |
-| `lib/repositories/` | Query, stream, batch và transaction Firestore. |
-| `lib/core/` | Chia tiền, settlement, tối ưu nợ, OCR, VietQR, ảnh và dịch vụ hạ tầng. |
+| `lib/models/` | Model ứng dụng và chuyển đổi Firestore. |
+| `lib/repositories/` | Query/stream Firestore và gọi callable Functions. |
+| `lib/core/` | Preview allocation, settlement cũ, OCR, VietQR và dịch vụ thiết bị. |
+| `functions/index.js` | Export callable trusted handlers và health endpoint. |
+| `functions/src/expenses/` | Validation, aggregation, mutation và close-session settlement phía server. |
+| `firestore.rules` | Giới hạn các thao tác trực tiếp từ client. |
 
-Riverpod cung cấp Firebase Auth, Firestore, repository và stream theo UID/session/debt.
+Riverpod cấp dependencies và streams theo UID/session/debt.
 
 ## Mô hình dữ liệu Firestore
 
-### `users/{uid}`
+### `users/{uid}` và contacts
 
-Lưu tên, email, `emailLower`, avatar và URL ảnh QR nhận tiền. Người dùng đã đăng nhập có thể đọc hồ sơ để tìm bạn; chỉ chính chủ được ghi document hồ sơ.
-
-`users/{uid}/contacts/{contactId}` lưu snapshot tên/avatar và thời điểm tương tác. Chủ danh bạ có thể đọc/xóa; rules còn cho phép chính contact ghi thông tin của họ để hỗ trợ kết bạn hai chiều.
+Lưu hồ sơ gồm tên, email, avatar và QR nhận tiền. `users/{uid}/contacts/{contactId}` giữ snapshot contact.
 
 ### `sessions/{sessionId}`
 
-`Session` lưu creator, tiêu đề, một `totalAmount`, `splitMode`, trạng thái, danh sách UID thành viên và timestamp. `sessions/{sessionId}/members/{memberId}` lưu identity snapshot, `amountOwed`, `amountPaid`, trạng thái và thời điểm trả.
+Session lưu creator, tiêu đề, `totalAmount`, trạng thái, `memberUserIds`, timestamps và `closeResult` sau khi đóng. `sessions/{sessionId}/members/{memberId}` giữ identity snapshot cùng `amountOwed`, `amountPaid`, trạng thái và thời điểm trả.
 
-Creator tạo session và members trong batch. Khi phiên còn mở, creator có thể đổi tiêu đề hoặc xóa session cùng members. Đóng phiên cập nhật session, entries và balances trong một transaction.
+### `sessions/{sessionId}/expenses/{expenseId}`
 
-Code hiện **không có** model, subcollection hoặc field cho danh sách khoản chi chi tiết.
+Expense lưu `description`, số nguyên dương `amount`, `payerId`, ordered `participantIds`, metadata thứ tự/thời gian khi có. Model client vẫn đọc được `shares` nếu document có field này, nhưng dữ liệu mới không dựa vào persisted shares: client có thể tính `effectiveShares`, còn Functions luôn phân bổ lại từ amount và participant order.
+
+Payer phải là account member; participants phải thuộc phiên. Clients chỉ đọc collection này. `createSessionWithExpenses` ghi session, members và expenses trong một atomic batch, đồng thời kiểm tra tổng session bằng tổng expense. `mutateExpense` cho creator add/update/delete khi phiên mở, giữ ít nhất một khoản và cập nhật `totalAmount` trong transaction.
+
+### `sessions/{sessionId}/guestObligations/{obligationId}`
+
+Khi đóng phiên itemized, mỗi guest share phát sinh obligation gồm `sessionId`, `expenseId`, `payerId` là UID người trả thực tế, `guestMemberId`, `amount`, `status`, timestamps và thông tin người xác nhận. ID hiện ghép expense ID với guest member ID. Thành viên phiên được đọc; client không được ghi. Chỉ payer thực tế có thể xác nhận đã thu qua callable.
 
 ### `debts/{userA_userB}`
 
-Document ID được tạo từ hai UID đã sắp xếp; `userA < userB`. `balance > 0` nghĩa userA nợ userB, `balance < 0` nghĩa userB nợ userA.
+Document ID ghép hai UID đã sắp xếp (`userA < userB`). `balance > 0` nghĩa userA nợ userB; `balance < 0` nghĩa userB nợ userA. `entries/{sessionId}` là transfer bất biến theo phiên; `payments/{paymentId}` ghi báo chuyển từ `pending` sang `confirmed`. Guest obligations không nằm trong debts/payments.
 
-- `entries/{sessionId}`: lượt chuyển bất biến sinh khi đóng phiên.
-- `payments/{paymentId}`: lần báo chuyển tiền, từ `pending` sang `confirmed`.
-- `pendingPaymentId`: khóa một payment đang chờ cho cặp nợ.
+## Allocation, tổng hợp và close
 
-Guest không có UID và không được lưu vào `debts` hoặc `payments`.
+Client preview dùng `lib/core/expense_allocation.dart`; allocation chia số nguyên đều và cấp remainder theo ordered participant IDs. Trusted itemized close đọc lại expenses/members, kiểm tra tổng, tự phân bổ lại và tổng hợp:
 
-## Tạo và chia phiên
+- `totalAmount` từ expense amounts;
+- `paidByMember` theo payer;
+- `owedByMember` theo shares;
+- account net positions sau khi tách phần guest khỏi debt UID-pair;
+- guest obligations theo từng expense/guest participant.
 
-Màn tạo phiên nhận tổng bill bằng nhập tay hoặc OCR. OCR dùng Google ML Kit trên thiết bị, ưu tiên số cạnh từ khóa tổng tiền; nếu không có từ khóa thì gợi ý số hợp lệ lớn nhất và yêu cầu người dùng kiểm tra.
+`closeSession` chỉ cho creator đóng session đang mở. Trong transaction, Function ghép debtor với creditor theo thứ tự xác định, tạo guest obligations, entries, cập nhật balances/member amounts và chuyển session sang `closed` cùng `closeResult`. Matcher server hiện là greedy, bảo toàn tiền nhưng không cam kết số transfer tối thiểu tuyệt đối. Client không gửi settlement result làm authoritative input.
 
-`computeShares` hỗ trợ:
+### Legacy compatibility
 
-- Chia đều: phần dư đồng được cộng vào creator.
-- Chia tùy chỉnh: số nhập tay được giữ nguyên; phần còn lại chia đều cho các thành viên chưa nhập và creator.
+Nếu không có expense documents, close logic dùng member `amountOwed`/`amountPaid`. Tổng owed phải khớp session total; `amountPaid` thiếu được đọc là 0. Khi `paidSum == 0`, creator được coi là đã ứng toàn bộ total. Phiên legacy vẫn đóng được nhưng nhánh này không tạo itemized guest obligations.
 
-Khi bật nhiều người ứng tiền, thành viên có tài khoản nhập `amountPaid`; creator nhận `totalAmount - othersPaid`. Guest không được ứng tiền.
+## Account settlement và payment
 
-## Đóng phiên và settlement
+Mỗi account net position phản ánh phần đã trả trừ phần phải chịu sau khi loại guest claims. Transfers được gom theo cặp UID và cộng vào balance hiện có, đồng thời lưu entry cho session.
 
-`SessionRepository.closeSession` thực hiện trong transaction:
+Debt/payment semantics hiện tại không đổi: debtor tạo payment `pending` cho toàn bộ số đang nợ, creditor xác nhận để giảm balance. Các thao tác payment được Firestore Rules kiểm tra; chưa có partial payment. Guest không tạo UID-pair debt/payment và chỉ được theo dõi qua obligation riêng.
 
-1. Từ chối nếu phiên đã đóng.
-2. Kiểm tra tổng `amountOwed` bằng `totalAmount`.
-3. Gọi `settleSession` để tính vị thế ròng.
-4. Ghi session thành `closed`, tạo entry theo phiên và cộng dồn balance từng cặp.
-5. Chuyển thành viên tài khoản sang trạng thái ledger/paid; guest giữ trạng thái cần thu.
+## Cloud Functions
 
-Với dữ liệu mới, `settleSession` yêu cầu tổng `amountPaid` bằng tổng `amountOwed`. Với phiên cũ có tổng `amountPaid == 0`, creator được coi là đã ứng toàn bộ bill.
+`functions/index.js` export:
 
-Mỗi tài khoản có vị thế `amountPaid - amountOwed`. Phần guest phải chịu được trừ khỏi vị thế creator vì creator tự thu guest ngoài sổ nợ tài khoản.
-
-`simplifyDebts` tìm số lượt chuyển tối thiểu bằng subset dynamic programming khi có tối đa 18 số dư khác 0. Nhóm lớn hơn dùng greedy: vẫn bảo toàn tiền nhưng không bảo đảm số lượt tối thiểu.
-
-## Thanh toán công nợ
-
-Con nợ bấm “Tôi đã chuyển” để tạo payment `pending` đúng bằng toàn bộ số dư đang nợ. Transaction từ chối khi balance đã hết hoặc đã có payment chờ. Chủ nợ bấm “Đã nhận”; payment chuyển sang `confirmed` và balance giảm đúng amount đã lưu.
-
-Luồng hiện tại không hỗ trợ trả một phần hoặc từ chối payment trong UI.
-
-Guest được nhắc và đánh dấu “Đã thu” tại màn hình chi tiết phiên. Mục tiêu đưa nghĩa vụ guest vào giao diện Công nợ thuộc thiết kế khoản chi chi tiết tương lai, chưa tồn tại trong code hiện tại.
-
-## VietQR, ảnh và chia sẻ
-
-- Onboarding kiểm tra ảnh tối đa 5 MB, đọc QR trên thiết bị, xác minh payload EMVCo/NAPAS và CRC trước khi upload lên Cloudinary.
-- `staticQrPayloadProvider` tải ảnh QR của chủ nợ và đọc payload trên thiết bị.
-- `buildDynamicVietQr` chuyển mã tĩnh thành mã động, thêm số tiền và nội dung không dấu tối đa 25 ký tự, rồi tính lại CRC16-CCITT.
-- Nếu không đọc được payload tĩnh, UI dùng ảnh QR gốc làm fallback.
-- QR có thể được render thành PNG, lưu vào album SplitPay hoặc ghép thành thẻ thanh toán để chia sẻ.
-
-Không có Cloud Function trong repository; tính chia và settlement chạy ở client.
+| Function | Vai trò |
+|---|---|
+| `health` | HTTP health check trả `ok`. |
+| `createSessionWithExpenses` | Tạo session, members và expenses sau validation. |
+| `mutateExpense` | Add/update/delete expense khi phiên mở, cập nhật tổng phiên. |
+| `closeSession` | Tính lại settlement authoritative, ghi debts/entries/guest obligations. |
+| `markGuestObligationCollected` | Payer thực tế xác nhận guest obligation đã thu. |
 
 ## Biên bảo mật Firestore
 
-`firestore.rules` giới hạn các mutation quan trọng:
+Rules cho phép thành viên đọc sessions, members, expenses và guest obligations. Client không được ghi expenses/guest obligations, đóng session hoặc cập nhật member accounting. Debt, entry và payment client writes chỉ được phép khi khớp chứng từ và chuyển đổi trạng thái mà Rules kiểm tra; Functions dùng Admin SDK để ghi trusted close outputs sau khi tự xác thực caller, session state, membership và số liệu.
 
-- Chỉ creator tạo session hợp lệ; chỉ thành viên tài khoản đọc session.
-- Tiền trong session/member không được sửa sau khi tạo; creator chỉ đổi tiêu đề, đóng hoặc xóa phiên đang mở.
-- Debt ID và thứ tự participants phải đúng quy ước.
-- Balance chỉ thay đổi khi khớp entry mới của phiên đang được đóng hoặc payment đang được xác nhận.
-- Entry phải thuộc thành viên phiên, có số tiền dương không vượt bill và bất biến sau khi tạo.
-- Payment pending phải đúng toàn bộ số đang nợ; chỉ chủ nợ xác nhận và không được sửa amount.
-- Debt, entry và payment không được xóa qua client.
+## VietQR, ảnh và chia sẻ
 
-Rules bảo vệ liên kết giữa balance và chứng từ, nhưng không tính lại độc lập toàn bộ phân bổ `amountOwed`/`amountPaid` do client gửi. Khi thêm khoản chi chi tiết phải cập nhật model, repository, rules và tests đồng bộ.
+Onboarding kiểm tra ảnh tối đa 5 MB, đọc payload VietQR NAPAS và CRC trước khi upload Cloudinary. App có thể tạo QR động từ payload tĩnh, render PNG, lưu hoặc chia sẻ thẻ; nếu không parse được payload thì dùng ảnh QR gốc.
 
 ## Tham chiếu
 
