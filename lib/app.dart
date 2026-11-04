@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:forui/forui.dart';
 
 import 'core/firebase_providers.dart';
+import 'repositories/auth_repository.dart';
 import 'repositories/user_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/qr_onboarding_screen.dart';
@@ -69,7 +70,40 @@ class AuthGate extends ConsumerWidget {
             body: Center(child: CircularProgressIndicator()),
           ),
           error: (e, _) => Scaffold(
-            body: Center(child: Text('Lỗi tải profile: $e')),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Colors.orange,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Lỗi tải profile: $e',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    FilledButton.icon(
+                      onPressed: () {
+                        ref.invalidate(currentUserProvider(user.uid));
+                      },
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Thử lại'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton(
+                      onPressed: () =>
+                          ref.read(authRepositoryProvider).signOut(),
+                      child: const Text('Đăng xuất'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
           data: (appUser) {
             if (appUser == null || !appUser.hasQr) {

@@ -82,12 +82,12 @@ final userRepositoryProvider = Provider<UserRepository>((ref) {
 
 /// Stream profile của user hiện tại theo [uid].
 final currentUserProvider =
-    StreamProvider.family<AppUser?, String>((ref, uid) {
+    StreamProvider.autoDispose.family<AppUser?, String>((ref, uid) {
   return ref.watch(userRepositoryProvider).watchUser(uid);
 });
 
 /// Stream danh sách bạn bè gần đây của [uid].
 final contactsProvider =
-    StreamProvider.family<List<AppUser>, String>((ref, uid) {
+    StreamProvider.autoDispose.family<List<AppUser>, String>((ref, uid) {
   return ref.watch(userRepositoryProvider).watchContacts(uid);
 });
