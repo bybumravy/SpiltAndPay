@@ -83,10 +83,12 @@ class Debt {
 
   factory Debt.fromMap(Map<String, dynamic> map) {
     return Debt(
-      userA: map['userA'] as String,
-      userB: map['userB'] as String,
-      balance: (map['balance'] as num).toInt(),
-      updatedAt: (map['updatedAt'] as Timestamp).toDate(),
+      userA: map['userA'] as String? ?? '',
+      userB: map['userB'] as String? ?? '',
+      balance: (map['balance'] as num?)?.toInt() ?? 0,
+      updatedAt: map['updatedAt'] is Timestamp
+          ? (map['updatedAt'] as Timestamp).toDate()
+          : DateTime.now(),
       pendingPaymentId: map['pendingPaymentId'] as String?,
     );
   }

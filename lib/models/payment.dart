@@ -38,15 +38,17 @@ class Payment {
   factory Payment.fromMap(String id, Map<String, dynamic> map) {
     return Payment(
       paymentId: id,
-      fromUserId: map['fromUserId'] as String,
-      toUserId: map['toUserId'] as String,
-      amount: (map['amount'] as num).toInt(),
+      fromUserId: map['fromUserId'] as String? ?? '',
+      toUserId: map['toUserId'] as String? ?? '',
+      amount: (map['amount'] as num?)?.toInt() ?? 0,
       status: PaymentStatus.values.firstWhere(
         (s) => s.name == map['status'],
         orElse: () => PaymentStatus.pending,
       ),
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
-      confirmedAt: map['confirmedAt'] != null
+      createdAt: map['createdAt'] is Timestamp
+          ? (map['createdAt'] as Timestamp).toDate()
+          : DateTime.now(),
+      confirmedAt: map['confirmedAt'] is Timestamp
           ? (map['confirmedAt'] as Timestamp).toDate()
           : null,
     );

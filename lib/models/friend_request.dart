@@ -14,9 +14,9 @@ class FriendRequest {
   factory FriendRequest.fromMap(String id, Map<String, dynamic> data) =>
       FriendRequest(
         id: id,
-        senderId: data['senderId'] as String,
-        recipientId: data['recipientId'] as String,
-        senderName: data['senderName'] as String,
-        recipientName: data['recipientName'] as String,
+        senderId: data['senderId'] as String? ?? '',
+        recipientId: data['recipientId'] as String? ?? '',
+        senderName: data['senderName'] as String? ?? '',
+        recipientName: data['recipientName'] as String? ?? '',
       );
 }
