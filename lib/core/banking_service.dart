@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+/// Đại diện cấu hình của một ứng dụng ngân hàng / ví điện tử được hỗ trợ.
 class BankAppInfo {
   final String id;
   final String name;
   final String shortName;
   final String packageName;
   final String scheme;
+  final List<String> altSchemes;
   final Color brandColor;
   final IconData icon;
 
@@ -17,9 +19,13 @@ class BankAppInfo {
     required this.shortName,
     required this.packageName,
     required this.scheme,
+    this.altSchemes = const [],
     required this.brandColor,
     this.icon = Icons.account_balance,
   });
+
+  /// Danh sách tất cả các URI Scheme khả dĩ để thử kích hoạt app.
+  List<String> get allSchemes => [scheme, ...altSchemes];
 }
 
 const List<BankAppInfo> kSupportedBanks = [
@@ -28,7 +34,8 @@ const List<BankAppInfo> kSupportedBanks = [
     name: 'MBBank (Quân Đội)',
     shortName: 'MBBank',
     packageName: 'com.mbmobile',
-    scheme: 'mbmobile://',
+    scheme: 'mbbank://',
+    altSchemes: ['mbmobile://'],
     brandColor: Color(0xFF1E4399),
     icon: Icons.account_balance,
   ),
@@ -37,7 +44,8 @@ const List<BankAppInfo> kSupportedBanks = [
     name: 'Vietcombank (VCB Digibank)',
     shortName: 'Vietcombank',
     packageName: 'com.VCB',
-    scheme: 'vcb://',
+    scheme: 'vietcombankmobile://',
+    altSchemes: ['vcb://', 'vcbdigibank://'],
     brandColor: Color(0xFF005B27),
     icon: Icons.account_balance,
   ),
@@ -45,8 +53,9 @@ const List<BankAppInfo> kSupportedBanks = [
     id: 'techcombank',
     name: 'Techcombank Mobile',
     shortName: 'Techcombank',
-    packageName: 'com.techcombank.mobile',
-    scheme: 'techcombank://',
+    packageName: 'vn.com.techcombank.bb.app',
+    scheme: 'tcb://',
+    altSchemes: ['techcombank://'],
     brandColor: Color(0xFFEE2E24),
     icon: Icons.account_balance,
   ),
@@ -65,6 +74,7 @@ const List<BankAppInfo> kSupportedBanks = [
     shortName: 'BIDV',
     packageName: 'com.vnpay.bidv',
     scheme: 'bidvsmartbanking://',
+    altSchemes: ['bidv://', 'bidv.smartbanking.partner://'],
     brandColor: Color(0xFF0F75BC),
     icon: Icons.account_balance,
   ),
@@ -73,7 +83,8 @@ const List<BankAppInfo> kSupportedBanks = [
     name: 'TPBank Mobile',
     shortName: 'TPBank',
     packageName: 'com.tpb.mb.gprsandroid',
-    scheme: 'tpbank://',
+    scheme: 'hydro://',
+    altSchemes: ['tpbank://'],
     brandColor: Color(0xFF7B2082),
     icon: Icons.account_balance,
   ),
@@ -82,7 +93,8 @@ const List<BankAppInfo> kSupportedBanks = [
     name: 'VPBank NEO',
     shortName: 'VPBank',
     packageName: 'com.vnpay.vpbankonline',
-    scheme: 'vpbank://',
+    scheme: 'vpbankneo://',
+    altSchemes: ['vpbank://'],
     brandColor: Color(0xFF007E33),
     icon: Icons.account_balance,
   ),
@@ -91,7 +103,8 @@ const List<BankAppInfo> kSupportedBanks = [
     name: 'ACB ONE',
     shortName: 'ACB',
     packageName: 'mobile.acb.com.vn',
-    scheme: 'acb://',
+    scheme: 'acbone://',
+    altSchemes: ['acb://'],
     brandColor: Color(0xFF005EA6),
     icon: Icons.account_balance,
   ),
@@ -110,6 +123,7 @@ const List<BankAppInfo> kSupportedBanks = [
     shortName: 'Viettel Money',
     packageName: 'com.bplus.vtpay',
     scheme: 'viettelmoney://',
+    altSchemes: ['viettelmoney.vn://', 'vtpaystaging.vn://'],
     brandColor: Color(0xFFE60000),
     icon: Icons.account_balance_wallet,
   ),
@@ -118,12 +132,13 @@ const List<BankAppInfo> kSupportedBanks = [
 class BankingAppService {
   /// Kiểm tra xem ứng dụng ngân hàng có mở được trên máy không.
   static Future<bool> isBankInstalled(BankAppInfo bank) async {
-    try {
-      final uri = Uri.parse(bank.scheme);
-      return await canLaunchUrl(uri);
-    } catch (_) {
-      return false;
+    for (final s in bank.allSchemes) {
+      try {
+        final uri = Uri.parse(s);
+        if (await canLaunchUrl(uri)) return true;
+      } catch (_) {}
     }
+    return false;
   }
 
   /// Lọc và sắp xếp: Đưa các app ngân hàng đã cài trên thiết bị lên đầu danh sách.
@@ -153,13 +168,20 @@ class BankingAppService {
       await Clipboard.setData(ClipboardData(text: transferNote));
     }
 
-    // 2. Thử kích hoạt App Scheme
-    final schemeUri = Uri.parse(bank.scheme);
-    if (await canLaunchUrl(schemeUri)) {
-      return await launchUrl(schemeUri, mode: LaunchMode.externalApplication);
+    // 2. Thử kích hoạt App Scheme (ưu tiên scheme chính, sau đó thử các alternative schemes)
+    for (final s in bank.allSchemes) {
+      try {
+        final schemeUri = Uri.parse(s);
+        if (await canLaunchUrl(schemeUri)) {
+          final launched = await launchUrl(schemeUri, mode: LaunchMode.externalApplication);
+          if (launched) return true;
+        }
+      } catch (e) {
+        debugPrint('Error launching scheme $s for ${bank.id}: $e');
+      }
     }
 
-    // 3. Fallback: Mở Google Play Store để cài đặt nếu chưa có
+    // 3. Fallback: Mở Google Play Store để cài đặt nếu máy chưa có ứng dụng
     final storeUri = Uri.parse('https://play.google.com/store/apps/details?id=${bank.packageName}');
     if (await canLaunchUrl(storeUri)) {
       return await launchUrl(storeUri, mode: LaunchMode.externalApplication);

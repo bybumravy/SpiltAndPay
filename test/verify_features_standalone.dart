@@ -93,10 +93,10 @@ void main() {
   }
 
   assertTest('3.3. Kiểm tra các URI Scheme kết thúc bằng "://"',
-    bankingCode.contains("scheme: 'mbmobile://'") &&
-    bankingCode.contains("scheme: 'vcb://'") &&
+    bankingCode.contains("scheme: 'mbbank://'") &&
+    bankingCode.contains("scheme: 'vietcombankmobile://'") &&
     bankingCode.contains("scheme: 'momo://'") &&
-    bankingCode.contains("scheme: 'techcombank://'")
+    bankingCode.contains("scheme: 'tcb://'")
   );
 
   stdout.writeln('\n--- NHÓM 4: NỘI DUNG CHUYỂN KHOẢN & CLIPBOARD ---');
