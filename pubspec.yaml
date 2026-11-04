@@ -38,6 +38,7 @@ dependencies:
   share_plus: ^10.0.3
   uuid: ^4.5.1
   shared_preferences: ^2.3.3
+  url_launcher: ^6.3.0
 
   # --- QR: hiển thị và quét ---
   qr_flutter: ^4.1.0

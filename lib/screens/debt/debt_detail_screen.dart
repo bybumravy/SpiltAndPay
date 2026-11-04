@@ -12,6 +12,7 @@ import '../../models/payment.dart';
 import '../../repositories/debt_repository.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
+import 'widgets/bank_chooser_sheet.dart';
 
 class DebtDetailScreen extends ConsumerWidget {
   final Debt debt;
@@ -335,15 +336,42 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
             ),
           ),
           const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _isSaving ? null : _saveQr,
-            icon: _isSaving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.download),
-            label: const Text('Lưu ảnh QR vào máy'),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                  ),
+                  onPressed: () {
+                    final note = transferNote(
+                      debtorName: widget.myName,
+                      creditorName: widget.otherName,
+                    );
+                    BankChooserBottomSheet.show(
+                      context,
+                      transferNote: note,
+                      amount: widget.netAmount,
+                      onSaveQr: _saveQr,
+                    );
+                  },
+                  icon: const Icon(Icons.account_balance, size: 18),
+                  label: const Text('Mở App Ngân hàng'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _isSaving ? null : _saveQr,
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download, size: 18),
+                label: const Text('Lưu QR'),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
         ] else
