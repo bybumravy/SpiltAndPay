@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:forui/forui.dart';
+import 'package:splitpay/models/app_user.dart';
+import 'package:splitpay/repositories/user_repository.dart';
+import 'package:splitpay/screens/session/create_session_screen.dart';
 import 'package:splitpay/models/expense.dart';
 import 'package:splitpay/models/session.dart';
 import 'package:splitpay/models/session_member.dart';
@@ -40,38 +44,32 @@ const _creator = SessionMember(
 );
 
 class _FakeSessionRepository implements SessionRepository {
-  final List<ExpenseInput> addedExpenses = [];
-  final List<String> deletedExpenses = [];
-  final List<({String expenseId, ExpenseInput expense})> updatedExpenses = [];
+  String? savedTitle;
+  List<ExpenseInput>? savedExpenses;
+
+  @override
+  Future<void> saveOpenSession({
+    required Session originalSession,
+    required List<SessionMember> originalMembers,
+    required List<Expense> originalExpenses,
+    required String title,
+    required List<SessionMember> members,
+    required List<ExpenseInput> expenses,
+  }) async {
+    savedTitle = title;
+    savedExpenses = expenses;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
+class _FakeUsers implements UserRepository {
   @override
-  Future<String> addExpense({
-    required String sessionId,
-    required ExpenseInput expense,
-  }) async {
-    addedExpenses.add(expense);
-    return expense.expenseId;
-  }
-
+  Future<AppUser?> findByUid(String uid) async =>
+      AppUser(uid: uid, name: 'Creator', email: 'creator@example.com');
   @override
-  Future<void> updateExpense({
-    required String sessionId,
-    required String expenseId,
-    required ExpenseInput expense,
-  }) async {
-    updatedExpenses.add((expenseId: expenseId, expense: expense));
-  }
-
-  @override
-  Future<void> deleteExpense({
-    required String sessionId,
-    required String expenseId,
-  }) async {
-    deletedExpenses.add(expenseId);
-  }
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FakeGuestObligationRepository implements GuestObligationRepository {
@@ -133,7 +131,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Các khoản chi'));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('expense-section-heading')),
+      );
       await tester.pumpAndSettle();
       expect(find.text('Chia cho 12 người'), findsOneWidget);
       expect(find.text(expense.description), findsOneWidget);
@@ -173,159 +173,10 @@ void main() {
       await tester.tap(find.text('Thử lại'));
       await tester.pumpAndSettle();
       expect(attempts, 2);
-      expect(find.text('Thành viên'), findsOneWidget);
+      expect(find.text('Creator'), findsWidgets);
       expect(find.textContaining('Không tải được thành viên'), findsNothing);
     },
   );
-
-  testWidgets(
-    'adding an expense defaults payer to creator and participants to all members',
-    (tester) async {
-      final repository = _FakeSessionRepository();
-      const otherMember = SessionMember(
-        memberId: 'member-2',
-        userId: 'member-2',
-        displayName: 'Member Two',
-        isGuest: false,
-        amountOwed: 0,
-        status: MemberStatus.pending,
-      );
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sessionRepositoryProvider.overrideWithValue(repository),
-            sessionMembersProvider('session-1')
-                .overrideWith((ref) => Stream.value([_creator, otherMember])),
-            sessionExpensesProvider('session-1')
-                .overrideWith((ref) => Stream.value([_expense])),
-            sessionGuestObligationsProvider('session-1')
-                .overrideWith((ref) => Stream.value(const [])),
-            userSessionsProvider('creator')
-                .overrideWith((ref) => Stream.value([_session])),
-          ],
-          child: MaterialApp(
-            home: SessionDetailScreen(session: _session, currentUid: 'creator'),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Các khoản chi'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Thêm khoản chi'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).at(0), 'Drinks');
-      await tester.enterText(find.byType(TextField).at(1), '500');
-      await tester.tap(find.text('Thêm').last);
-      await tester.pumpAndSettle();
-
-      expect(repository.addedExpenses, hasLength(1));
-      expect(repository.addedExpenses.single.payerId, 'creator');
-      expect(repository.addedExpenses.single.participantIds, [
-        'creator',
-        'member-2',
-      ]);
-      expect(repository.addedExpenses.single.amount, 500);
-    },
-  );
-
-  testWidgets(
-    'adding an expense allows payer selection and participant deselection',
-    (tester) async {
-      final repository = _FakeSessionRepository();
-      const otherMember = SessionMember(
-        memberId: 'member-2',
-        userId: 'member-2',
-        displayName: 'Member Two',
-        isGuest: false,
-        amountOwed: 0,
-        status: MemberStatus.pending,
-      );
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            sessionRepositoryProvider.overrideWithValue(repository),
-            sessionMembersProvider('session-1')
-                .overrideWith((ref) => Stream.value([_creator, otherMember])),
-            sessionExpensesProvider('session-1')
-                .overrideWith((ref) => Stream.value([_expense])),
-            sessionGuestObligationsProvider('session-1')
-                .overrideWith((ref) => Stream.value(const [])),
-            userSessionsProvider('creator')
-                .overrideWith((ref) => Stream.value([_session])),
-          ],
-          child: MaterialApp(
-            home: SessionDetailScreen(session: _session, currentUid: 'creator'),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Các khoản chi'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Thêm khoản chi'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).at(0), 'Drinks');
-      await tester.enterText(find.byType(TextField).at(1), '500');
-      await tester.tap(find.byType(DropdownButtonFormField<String>).last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Member Two').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byType(CheckboxListTile).at(0));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Thêm').last);
-      await tester.pumpAndSettle();
-
-      expect(repository.addedExpenses.single.payerId, 'member-2');
-      expect(repository.addedExpenses.single.participantIds, ['member-2']);
-    },
-  );
-
-  testWidgets('editing an expense saves payer, participants and amount', (
-    tester,
-  ) async {
-    final repository = _FakeSessionRepository();
-    const otherMember = SessionMember(
-      memberId: 'member-2',
-      userId: 'member-2',
-      displayName: 'Member Two',
-      isGuest: false,
-      amountOwed: 0,
-      status: MemberStatus.pending,
-    );
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          sessionRepositoryProvider.overrideWithValue(repository),
-          sessionMembersProvider('session-1')
-              .overrideWith((ref) => Stream.value([_creator, otherMember])),
-          sessionExpensesProvider('session-1')
-              .overrideWith((ref) => Stream.value([_expense])),
-          sessionGuestObligationsProvider('session-1')
-              .overrideWith((ref) => Stream.value(const [])),
-          userSessionsProvider('creator')
-              .overrideWith((ref) => Stream.value([_session])),
-        ],
-        child: MaterialApp(
-          home: SessionDetailScreen(session: _session, currentUid: 'creator'),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Các khoản chi'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Sửa khoản chi'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).at(0), 'Updated meal');
-    await tester.enterText(find.byType(TextField).at(1), '1500');
-    await tester.tap(find.text('Lưu'));
-    await tester.pumpAndSettle();
-
-    expect(repository.updatedExpenses, hasLength(1));
-    final input = repository.updatedExpenses.single.expense;
-    expect(input.description, 'Updated meal');
-    expect(input.amount, 1500);
-    expect(input.payerId, 'creator');
-    expect(input.participantIds, ['creator']);
-  });
 
   testWidgets(
     'guest obligations show status and collect only for actual payer',
@@ -378,7 +229,22 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Khoản khách nợ'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('Khoản khách nợ'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('Khoản khách nợ'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Khoản khách nợ')),
+        alignment: 0.1,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Khoản khách nợ'));
       await tester.pumpAndSettle();
       expect(
@@ -412,9 +278,21 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Khoản khách nợ'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await Scrollable.ensureVisible(
+        tester.element(find.text('Khoản khách nợ')),
+        alignment: 0.1,
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Khoản khách nợ'));
       await tester.pumpAndSettle();
       expect(find.widgetWithText(TextButton, 'Đã thu'), findsOneWidget);
+      await tester.ensureVisible(find.widgetWithText(TextButton, 'Đã thu'));
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(TextButton, 'Đã thu'));
       await tester.pumpAndSettle();
       expect(repository.collectedIds, ['claim-1']);
@@ -480,13 +358,15 @@ void main() {
     },
   );
 
-  testWidgets('creator can manage expenses only while session is open', (
+  testWidgets('detail has one editor entry and no duplicate mutations', (
     tester,
   ) async {
+    final repository = _FakeSessionRepository();
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          sessionRepositoryProvider.overrideWithValue(_FakeSessionRepository()),
+          userRepositoryProvider.overrideWithValue(_FakeUsers()),
+          sessionRepositoryProvider.overrideWithValue(repository),
           sessionMembersProvider('session-1')
               .overrideWith((ref) => Stream.value([_creator])),
           sessionExpensesProvider('session-1')
@@ -497,16 +377,106 @@ void main() {
               .overrideWith((ref) => Stream.value([_session])),
         ],
         child: MaterialApp(
+          localizationsDelegates: FLocalizations.localizationsDelegates,
+          supportedLocales: FLocalizations.supportedLocales,
           home: SessionDetailScreen(session: _session, currentUid: 'creator'),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Các khoản chi'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('expense-section-heading')),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('Sửa khoản chi'), findsOneWidget);
-    expect(find.byTooltip('Xoá khoản chi'), findsOneWidget);
-    expect(find.text('Thêm khoản chi'), findsOneWidget);
+    expect(find.text('Chỉnh sửa phiên'), findsOneWidget);
+    expect(find.byTooltip('Sửa khoản chi'), findsNothing);
+    expect(find.byTooltip('Xoá khoản chi'), findsNothing);
+    expect(find.byTooltip('Thêm khoản chi'), findsNothing);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Xoá phiên'), findsOneWidget);
+    expect(find.text('Chỉnh sửa toàn bộ phiên'), findsNothing);
+    expect(find.text('Sửa tên phiên'), findsNothing);
+    await tester.tapAt(const Offset(10, 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Chỉnh sửa phiên'));
+    await tester.pumpAndSettle();
+    final editor = tester.widget<CreateSessionScreen>(
+      find.byType(CreateSessionScreen),
+    );
+    expect(editor.initialExpenses.single.expenseId, _expense.expenseId);
+    expect(editor.initialMembers.single.memberId, _creator.memberId);
+    await tester.enterText(find.byType(FTextField).at(0), 'Renamed dinner');
+    await tester.enterText(find.byType(FTextField).at(1), 'Meal changed');
+    await tester.enterText(find.byType(FTextField).at(2), '1500');
+    // Leaving the editor discards the draft without mutating the session.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(repository.savedTitle, isNull);
+    expect(
+      tester
+          .widget<SessionDetailScreen>(find.byType(SessionDetailScreen))
+          .session
+          .title,
+      'Dinner',
+    );
+    await tester.tap(find.text('Chỉnh sửa phiên'));
+    await tester.pumpAndSettle();
+    expect(find.text('Meal'), findsOneWidget);
+    await tester.enterText(find.byType(FTextField).at(0), 'Renamed dinner');
+    await tester.enterText(find.byType(FTextField).at(1), 'Meal changed');
+    await tester.enterText(find.byType(FTextField).at(2), '1500');
+    await tester.tap(find.text('Lưu thay đổi'));
+    await tester.pumpAndSettle();
+    expect(repository.savedTitle, 'Renamed dinner');
+    expect(repository.savedExpenses!.single.expenseId, _expense.expenseId);
+    expect(repository.savedExpenses!.single.description, 'Meal changed');
+    expect(repository.savedExpenses!.single.amount, 1500);
+    expect(find.byType(CreateSessionScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('closed sessions and other members have no editing entry', (
+    tester,
+  ) async {
+    for (final state in [SessionStatus.open, SessionStatus.closed]) {
+      final currentUid = state == SessionStatus.open ? 'other' : 'creator';
+      final session = Session(
+        sessionId: 'session-1',
+        creatorId: 'creator',
+        title: 'Dinner',
+        totalAmount: 1000,
+        splitMode: SessionSplitMode.equal,
+        status: state,
+        memberUserIds: ['creator', 'other'],
+        createdAt: _session.createdAt,
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            userSessionsProvider(currentUid)
+                .overrideWith((ref) => Stream.value([session])),
+            sessionMembersProvider('session-1')
+                .overrideWith((ref) => Stream.value([_creator])),
+            sessionExpensesProvider('session-1')
+                .overrideWith((ref) => Stream.value([_expense])),
+            sessionGuestObligationsProvider('session-1')
+                .overrideWith((ref) => Stream.value([])),
+          ],
+          child: MaterialApp(
+            home: SessionDetailScreen(session: session, currentUid: currentUid),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Chỉnh sửa phiên'), findsNothing);
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+      expect(find.byTooltip('Thêm khoản chi'), findsNothing);
+      expect(find.byTooltip('Sửa khoản chi'), findsNothing);
+      expect(find.text('Meal'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
   });
 }

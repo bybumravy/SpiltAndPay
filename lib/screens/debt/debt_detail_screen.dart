@@ -12,6 +12,8 @@ import '../../models/payment.dart';
 import '../../repositories/debt_repository.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
+import '../../ui/app_theme.dart';
+import '../../ui/content_rows.dart';
 import 'widgets/bank_chooser_sheet.dart';
 
 class DebtDetailScreen extends ConsumerWidget {
@@ -62,110 +64,80 @@ class DebtDetailScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Lỗi: $e')),
         data: (otherUser) => ListView(
-          padding: const EdgeInsets.only(bottom: 32),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
           children: [
-            // Tổng quan
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Text(
-                    isSettled
-                        ? 'Đã thanh toán đủ với ${otherUser?.name ?? otherUid}'
-                        : iAmDebtor
-                        ? 'Bạn đang nợ ${otherUser?.name ?? otherUid}'
-                        : '${otherUser?.name ?? otherUid} đang nợ bạn',
-                    style: Theme.of(context).textTheme.titleMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    formatVnd(netAmount.abs()),
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      color: iAmDebtor ? Colors.red : Colors.green,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+            Text(
+              otherUser?.name ?? otherUid,
+              style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const Divider(height: 1),
-
-            // Nút hành động
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: isSettled
-                  ? const Text(
-                      'Không còn khoản nợ nào.',
-                      style: TextStyle(color: Colors.green),
-                      textAlign: TextAlign.center,
-                    )
+            const SizedBox(height: 24),
+            Text(
+              isSettled
+                  ? 'Đã thanh toán'
                   : iAmDebtor
-                  ? _DebtorActions(
-                      debt: current,
-                      debtId: debtId,
-                      currentUid: currentUid,
-                      otherUid: otherUid,
-                      netAmount: netAmount,
-                      otherQrUrl: otherUser?.qrImageUrl,
-                      myName: myName,
-                      otherName: otherUser?.name ?? '',
-                    )
-                  : _CreditorSection(
-                      debtorName: otherUser?.name ?? otherUid,
-                    ),
+                  ? 'Bạn nợ'
+                  : 'Cần thu',
+              style: Theme.of(context).textTheme.bodyLarge
+                  ?.copyWith(color: AppTheme.muted),
             ),
-            const Divider(height: 1),
-
-            // Lịch sử payments
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Lịch sử thanh toán',
-                  style: Theme.of(context).textTheme.titleSmall,
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                formatVnd(netAmount.abs()),
+                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  color: isSettled
+                      ? AppTheme.green
+                      : iAmDebtor
+                      ? AppTheme.ink
+                      : AppTheme.purple,
                 ),
               ),
             ),
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 24),
+            if (!isSettled && iAmDebtor)
+              _DebtorActions(
+                debt: current,
+                debtId: debtId,
+                currentUid: currentUid,
+                otherUid: otherUid,
+                netAmount: netAmount,
+                otherQrUrl: otherUser?.qrImageUrl,
+                myName: myName,
+                otherName: otherUser?.name ?? '',
+              ),
+            if (!isSettled && !iAmDebtor)
+              const Text(
+                'Chờ thanh toán',
+                style: TextStyle(color: AppTheme.muted),
+              ),
+            const SizedBox(height: 28),
+            const SectionHeading('Lịch sử thanh toán'),
             paymentsAsync.when(
-              loading: () => const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-              error: (e, _) => const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(
-                  child: Text(
-                    'Chưa có giao dịch nào',
-                    style: TextStyle(color: Colors.grey),
-                  ),
-                ),
-              ),
-              data: (payments) {
-                if (payments.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Text('Lỗi: $e'),
+              data: (payments) => payments.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
                       child: Text(
-                        'Chưa có giao dịch nào',
-                        style: TextStyle(color: Colors.grey),
+                        'Chưa có giao dịch',
+                        style: TextStyle(color: AppTheme.muted),
                       ),
+                    )
+                  : Column(
+                      children: [
+                        for (final payment in payments)
+                          _PaymentTile(
+                            payment: payment,
+                            currentUid: currentUid,
+                            debtId: debtId,
+                            debtorIsUserA: debt.userA == payment.fromUserId,
+                          ),
+                      ],
                     ),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final p in payments)
-                      _PaymentTile(
-                        payment: p,
-                        currentUid: currentUid,
-                        debtId: debtId,
-                        debtorIsUserA: debt.userA == p.fromUserId,
-                      ),
-                  ],
-                );
-              },
             ),
           ],
         ),
@@ -309,51 +281,27 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Hướng dẫn: QR tĩnh không có số tiền / nội dung nên người nợ tự nhập.
-        Card(
-          color: Theme.of(context).colorScheme.primaryContainer,
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Bạn cần chuyển số tiền:'),
-                Text(
-                  formatVnd(widget.netAmount),
-                  style: Theme.of(context).textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                const Text('Nội dung chuyển khoản nên ghi:'),
-                SelectableText(
-                  transferNote(
-                    debtorName: widget.myName,
-                    creditorName: widget.otherName,
-                  ),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        Text(
+          'Nội dung chuyển khoản',
+          style: Theme.of(context).textTheme.bodySmall,
         ),
-        const SizedBox(height: 12),
-        if (widget.otherQrUrl != null) ...[
-          const Text(
-            'QR chuyển tiền:',
-            style: TextStyle(fontWeight: FontWeight.bold),
+        const SizedBox(height: 6),
+        SelectableText(
+          transferNote(
+            debtorName: widget.myName,
+            creditorName: widget.otherName,
           ),
-          const SizedBox(height: 8),
-          if (dynamicQr != null) ...[
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 24),
+        if (widget.otherQrUrl != null) ...[
+          if (dynamicQr != null)
             Center(
               child: Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: AppTheme.line),
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: QrImageView(
                   data: dynamicQr,
@@ -362,27 +310,21 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                   backgroundColor: Colors.white,
                 ),
               ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Mã này đã điền sẵn số tiền và nội dung. Lưu ảnh, mở app ngân hàng và quét là xong.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ] else
+            )
+          else
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(16),
               child: CachedNetworkImage(
                 imageUrl: widget.otherQrUrl!,
-                height: 200,
+                height: 240,
                 fit: BoxFit.contain,
-                placeholder: (ctx, url) =>
+                placeholder: (_, _) =>
                     const Center(child: CircularProgressIndicator()),
-                errorWidget: (ctx, url, err) =>
-                    const Icon(Icons.broken_image, size: 64),
+                errorWidget: (_, _, _) =>
+                    const Icon(Icons.broken_image_outlined, size: 64),
               ),
             ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -417,9 +359,12 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
           ),
           const SizedBox(height: 12),
         ] else
-          const Text(
-            'Chủ nợ chưa có QR.',
-            style: TextStyle(color: Colors.grey),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 20),
+            child: Text(
+              'Chưa có QR nhận tiền',
+              style: TextStyle(color: AppTheme.muted),
+            ),
           ),
         if (hasPending)
           const Padding(
@@ -431,43 +376,19 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
             ),
           ),
         FilledButton(
-          onPressed: (_isSending || hasPending) ? null : _markTransferred,
+          onPressed: _isSending || hasPending ? null : _markTransferred,
           child: _isSending
               ? const SizedBox(
-                  height: 20,
                   width: 20,
+                  height: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
                     color: Colors.white,
                   ),
                 )
-              : Text(
-                  hasPending
-                      ? 'Đang chờ xác nhận...'
-                      : 'Tôi đã chuyển ${formatVnd(widget.netAmount)}',
-                ),
+              : Text(hasPending ? 'Chờ xác nhận' : 'Tôi đã chuyển'),
         ),
       ],
-    );
-  }
-}
-
-// ── Chủ nợ: hướng dẫn ──────────────────────────────────────────────────────
-
-class _CreditorSection extends StatelessWidget {
-  final String debtorName;
-
-  const _CreditorSection({required this.debtorName});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Text(
-        '$debtorName sẽ chuyển tiền cho bạn. Xác nhận khi nhận được.',
-        style: const TextStyle(color: Colors.grey),
-        textAlign: TextAlign.center,
-      ),
     );
   }
 }
@@ -495,7 +416,7 @@ class _PaymentTile extends ConsumerWidget {
     return ListTile(
       leading: Icon(
         isPending ? Icons.schedule : Icons.check_circle,
-        color: isPending ? Colors.orange : Colors.green,
+        color: isPending ? AppTheme.muted : AppTheme.green,
       ),
       title: Text(formatVnd(payment.amount)),
       subtitle: Text(
@@ -523,7 +444,9 @@ class _PaymentTile extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Xác nhận thất bại. Thử lại.')),
+          SnackBar(
+            content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.'),
+          ),
         );
       }
     }

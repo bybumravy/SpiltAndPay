@@ -5,10 +5,14 @@ import 'package:forui/forui.dart';
 
 import 'core/firebase_providers.dart';
 import 'repositories/auth_repository.dart';
+import 'repositories/debt_repository.dart';
+import 'repositories/guest_obligation_repository.dart';
+import 'repositories/session_repository.dart';
 import 'repositories/user_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/qr_onboarding_screen.dart';
 import 'screens/home/home_screen.dart';
+import 'ui/app_theme.dart';
 
 /// Root widget của ứng dụng.
 class SplitPayApp extends StatelessWidget {
@@ -26,12 +30,8 @@ class SplitPayApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: FLocalizations.supportedLocales,
-      builder: (context, child) =>
-          FTheme(data: FTheme.neutral.light.touch, child: child!),
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6C63FF)),
-        useMaterial3: true,
-      ),
+      builder: (context, child) => FTheme(data: AppTheme.forui, child: child!),
+      theme: AppTheme.material,
       home: const AuthGate(),
     );
   }
@@ -48,15 +48,28 @@ class AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(authStateProvider, (previous, next) {
+      // Firestore listeners terminated on sign-out retain their last error.
+      // Recreate every account-scoped stream after a new authenticated session.
+      if (next.valueOrNull != null &&
+          previous?.valueOrNull?.uid != next.valueOrNull?.uid) {
+        ref.invalidate(currentUserProvider);
+        ref.invalidate(contactsProvider);
+        ref.invalidate(friendRequestsProvider);
+        ref.invalidate(userSessionsProvider);
+        ref.invalidate(sessionMembersProvider);
+        ref.invalidate(sessionExpensesProvider);
+        ref.invalidate(sessionGuestObligationsProvider);
+        ref.invalidate(userDebtsProvider);
+        ref.invalidate(paymentsProvider);
+      }
+    });
     final authState = ref.watch(authStateProvider);
 
     return authState.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
-      error: (e, _) => Scaffold(
-        body: Center(child: Text('Lỗi: $e')),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('Lỗi: $e'))),
       data: (user) {
         if (user == null) {
           // Chưa đăng nhập.
@@ -118,4 +131,3 @@ class AuthGate extends ConsumerWidget {
     );
   }
 }
-

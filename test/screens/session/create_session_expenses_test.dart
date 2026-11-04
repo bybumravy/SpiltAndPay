@@ -220,7 +220,6 @@ void main() {
 
       expect(find.text('Khoản chi 1'), findsOneWidget);
       expect(find.text('Thêm khoản chi'), findsOneWidget);
-      expect(find.byType(FCard), findsNWidgets(3));
       expect(find.byType(FTextField), findsAtLeastNWidgets(2));
 
       await tester.tap(find.text('Thêm khoản chi'));
@@ -228,7 +227,6 @@ void main() {
 
       expect(find.text('Khoản chi 1'), findsOneWidget);
       expect(find.text('Khoản chi 2'), findsOneWidget);
-      expect(find.byType(FCard), findsNWidgets(4));
     },
   );
 

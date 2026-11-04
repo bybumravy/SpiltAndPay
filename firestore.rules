@@ -57,9 +57,10 @@ service cloud.firestore {
 
       // contacts sub-collection: chính chủ đọc/xoá, hoặc bạn bè tự thêm/cập nhật thông tin của mình khi kết bạn 2 chiều.
       match /contacts/{contactId} {
-        allow read, delete: if isOwner(uid);
+        allow read: if isOwner(uid);
+        allow delete: if isSignedIn() && request.auth.uid in [uid, contactId];
         allow create, update: if isSignedIn() &&
-                                 (isOwner(uid) || request.auth.uid == contactId);
+          (acceptedInvitation(uid, contactId) || acceptedInvitation(contactId, uid));
       }
 
       // notifications sub-collection: chính chủ đọc/xoá và cập nhật isRead
@@ -68,6 +69,32 @@ service cloud.firestore {
         allow update: if isOwner(uid) && onlyChanges(['isRead']);
         allow create: if isSignedIn();
       }
+    }
+
+    function acceptedInvitation(sender, recipient) {
+      let p = /databases/$(database)/documents/friendRequests/$(sender + '_' + recipient);
+      return request.auth.uid == recipient && existsAfter(p) &&
+        getAfter(p).data.senderId == sender && getAfter(p).data.recipientId == recipient &&
+        getAfter(p).data.status == 'accepted';
+    }
+
+    match /friendRequests/{id} {
+      allow get: if isSignedIn() &&
+        (!exists(/databases/$(database)/documents/friendRequests/$(id)) || request.auth.uid in resource.data.participants);
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.resource.data.keys().hasOnly(
+        ['senderId', 'recipientId', 'participants', 'senderName', 'recipientName', 'status', 'createdAt']) &&
+        request.auth.uid == request.resource.data.senderId &&
+        request.resource.data.senderId != request.resource.data.recipientId &&
+        id == request.resource.data.senderId + '_' + request.resource.data.recipientId &&
+        request.resource.data.participants == [request.resource.data.senderId, request.resource.data.recipientId] &&
+        request.resource.data.senderName is string && request.resource.data.recipientName is string &&
+        request.resource.data.createdAt == request.time && request.resource.data.status == 'pending' &&
+        !exists(/databases/$(database)/documents/friendRequests/$(request.resource.data.recipientId + '_' + request.resource.data.senderId));
+      allow update: if isSignedIn() && request.auth.uid == resource.data.recipientId &&
+        resource.data.status == 'pending' && request.resource.data.status == 'accepted' && onlyChanges(['status']);
+      allow delete: if isSignedIn() &&
+        (!exists(/databases/$(database)/documents/friendRequests/$(id)) || request.auth.uid in resource.data.participants);
     }
 
     // ── sessions ─────────────────────────────────────────────────────────────

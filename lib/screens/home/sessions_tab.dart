@@ -5,6 +5,9 @@ import '../../core/firebase_providers.dart';
 import '../../core/money.dart';
 import '../../models/session.dart';
 import '../../repositories/session_repository.dart';
+import '../../ui/app_tabs.dart';
+import '../../ui/app_theme.dart';
+import '../../ui/content_rows.dart';
 import '../session/create_session_screen.dart';
 import '../session/session_detail_screen.dart';
 
@@ -17,8 +20,21 @@ class SessionsTab extends ConsumerStatefulWidget {
   ConsumerState<SessionsTab> createState() => _SessionsTabState();
 }
 
-class _SessionsTabState extends ConsumerState<SessionsTab> {
-  _SessionFilter _filter = _SessionFilter.all;
+class _SessionsTabState extends ConsumerState<SessionsTab>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: _SessionFilter.values.length, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,87 +44,92 @@ class _SessionsTabState extends ConsumerState<SessionsTab> {
     final sessionsAsync = ref.watch(userSessionsProvider(user.uid));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Phiên')),
-      body: sessionsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                const SizedBox(height: 12),
-                Text(
-                  e.toString().toLowerCase().contains('permission-denied')
-                      ? 'Chưa thể tải danh sách phiên do đang đồng bộ kết nối. Vui lòng thử lại.'
-                      : 'Lỗi: $e',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () =>
-                      ref.invalidate(userSessionsProvider(user.uid)),
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Thử lại'),
-                ),
-              ],
-            ),
-          ),
+      appBar: AppBar(
+        title: const Text('Phiên'),
+        bottom: AppTabs(
+          controller: _tabs,
+          labels: const ['Tất cả', 'Đang mở', 'Đã đóng'],
         ),
-        data: (sessions) {
-          final filtered = switch (_filter) {
-            _SessionFilter.all => sessions,
-            _SessionFilter.open =>
-              sessions.where((s) => s.status == SessionStatus.open).toList(),
-            _SessionFilter.closed =>
-              sessions.where((s) => s.status == SessionStatus.closed).toList(),
-          };
-          return RefreshIndicator(
-            onRefresh: () async =>
-                ref.invalidate(userSessionsProvider(user.uid)),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: Wrap(
-                    spacing: 8,
+      ),
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          for (final filter in _SessionFilter.values)
+            sessionsAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      for (final filter in _SessionFilter.values)
-                        ChoiceChip(
-                          label: Text(switch (filter) {
-                            _SessionFilter.all => 'Tất cả',
-                            _SessionFilter.open => 'Đang mở',
-                            _SessionFilter.closed => 'Đã đóng',
-                          }),
-                          selected: _filter == filter,
-                          onSelected: (_) => setState(() => _filter = filter),
-                        ),
+                      const Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: Colors.red,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        e.toString().toLowerCase().contains('permission-denied')
+                            ? 'Chưa thể tải danh sách phiên do đang đồng bộ kết nối. Vui lòng thử lại.'
+                            : 'Lỗi: $e',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        onPressed: () =>
+                            ref.invalidate(userSessionsProvider(user.uid)),
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Thử lại'),
+                      ),
                     ],
                   ),
                 ),
-                if (filtered.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 100),
-                    child: Center(child: Text('Chưa có phiên nào')),
-                  )
-                else
-                  for (final session in filtered)
-                    _SessionTile(session: session, currentUid: user.uid),
-              ],
+              ),
+              data: (sessions) {
+                final filtered = switch (filter) {
+                  _SessionFilter.all => sessions,
+                  _SessionFilter.open =>
+                    sessions
+                        .where((s) => s.status == SessionStatus.open)
+                        .toList(),
+                  _SessionFilter.closed =>
+                    sessions
+                        .where((s) => s.status == SessionStatus.closed)
+                        .toList(),
+                };
+                return RefreshIndicator(
+                  onRefresh: () async =>
+                      ref.invalidate(userSessionsProvider(user.uid)),
+                  child: ListView(
+                    key: PageStorageKey('sessions-${filter.name}'),
+                    padding: const EdgeInsets.only(top: 8, bottom: 100),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      if (filtered.isEmpty)
+                        const AppEmptyState(
+                          icon: Icons.receipt_long_outlined,
+                          title: 'Chưa có phiên nào',
+                        )
+                      else
+                        for (final session in filtered)
+                          _SessionTile(session: session, currentUid: user.uid),
+                    ],
+                  ),
+                );
+              },
             ),
-          );
-        },
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => CreateSessionScreen(creatorUid: user.uid),
           ),
         ),
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('Tạo phiên'),
       ),
     );
   }
@@ -168,49 +189,80 @@ class _SessionTile extends ConsumerWidget {
     final isCreator = session.creatorId == currentUid;
     final membersAsync = ref.watch(sessionMembersProvider(session.sessionId));
 
-    return ListTile(
-      title: Text(session.title),
-      subtitle: Text(
-        '${formatVnd(session.totalAmount)} · ${membersAsync.when(data: (members) => '${members.length} thành viên', loading: () => 'Đang tải thành viên…', error: (_, _) => 'Không tải được thành viên')}',
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Chip(
-            label: Text(
-              isOpen ? 'Đang mở' : 'Đã đóng',
-              style: const TextStyle(fontSize: 11),
-            ),
-            backgroundColor: isOpen ? Colors.green[50] : Colors.grey[200],
-            side: BorderSide(color: isOpen ? Colors.green : Colors.grey),
-            padding: EdgeInsets.zero,
-          ),
-          if (isCreator && isOpen)
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, size: 20),
-              onSelected: (val) {
-                if (val == 'delete') _confirmDelete(context, ref);
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Row(
-                    children: [
-                      Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                      SizedBox(width: 8),
-                      Text('Xoá phiên', style: TextStyle(color: Colors.red)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-        ],
-      ),
+    final count = membersAsync.when(
+      data: (m) => '${m.length} thành viên',
+      loading: () => 'Đang tải…',
+      error: (_, _) => 'Không tải được thành viên',
+    );
+    return InkWell(
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) =>
               SessionDetailScreen(session: session, currentUid: currentUid),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          session.title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      SessionStatusBadge(isOpen: isOpen),
+                      if (isCreator && isOpen)
+                        SizedBox(
+                          width: 44,
+                          child: PopupMenuButton<String>(
+                            padding: EdgeInsets.zero,
+                            onSelected: (value) {
+                              if (value == 'delete') {
+                                _confirmDelete(context, ref);
+                              }
+                            },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: Text(
+                                  'Xoá phiên',
+                                  style: TextStyle(color: AppTheme.red),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  LabelValueRow(
+                    label: Text(
+                      formatVnd(session.totalAmount),
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(color: AppTheme.purple),
+                    ),
+                    value: Text(
+                      count,
+                      textAlign: TextAlign.end,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+          ],
         ),
       ),
     );

@@ -4,6 +4,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../ui/app_tabs.dart';
+import '../../ui/app_theme.dart';
+
 import '../../models/app_user.dart';
 import '../../repositories/user_repository.dart';
 
@@ -29,7 +32,10 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this)
+      ..addListener(() {
+        if (mounted) setState(() {});
+      });
   }
 
   @override
@@ -48,11 +54,12 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
       _searchError = null;
     });
     try {
-      final user =
-          await ref.read(userRepositoryProvider).findByEmail(email);
+      final user = await ref.read(userRepositoryProvider).findByEmail(email);
       if (!mounted) return;
       if (user == null) {
-        setState(() => _searchError = 'Không tìm thấy người dùng với email này.');
+        setState(
+          () => _searchError = 'Không tìm thấy người dùng với email này.',
+        );
       } else if (user.uid == widget.currentUid) {
         setState(() => _searchError = 'Đây là tài khoản của bạn.');
       } else {
@@ -68,28 +75,23 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
   Future<void> _addContact(AppUser user) async {
     setState(() => _isAdding = true);
     try {
-      final currentUser =
-          await ref.read(userRepositoryProvider).findByUid(widget.currentUid);
       await ref
           .read(userRepositoryProvider)
-          .upsertContact(widget.currentUid, user);
-      if (currentUser != null) {
-        try {
-          await ref
-              .read(userRepositoryProvider)
-              .upsertContact(user.uid, currentUser);
-        } catch (_) {}
-      }
+          .sendFriendRequest(widget.currentUid, user);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đã thêm ${user.name} vào danh sách bạn bè')),
+        SnackBar(content: Text('Đã gửi lời mời đến ${user.name}')),
       );
       setState(() => _foundUser = null);
       _emailController.clear();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Thêm thất bại. Thử lại.')),
+          SnackBar(
+            content: Text(
+              e is StateError ? e.message : 'Gửi lời mời thất bại. Thử lại.',
+            ),
+          ),
         );
       }
     } finally {
@@ -99,10 +101,10 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
 
   /// Gọi sau khi quét được uid từ QR của bạn.
   Future<void> _handleScannedUid(String uid) async {
+    if (_isAdding) return;
     if (uid == widget.currentUid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đây là mã QR của bạn.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Đây là mã QR của bạn.')));
       return;
     }
     setState(() => _isAdding = true);
@@ -110,30 +112,51 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
       final user = await ref.read(userRepositoryProvider).findByUid(uid);
       if (!mounted) return;
       if (user == null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Không tìm thấy người dùng.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không tìm thấy người dùng.')),
+        );
         return;
       }
-      final currentUser =
-          await ref.read(userRepositoryProvider).findByUid(widget.currentUid);
-      await ref
-          .read(userRepositoryProvider)
-          .upsertContact(widget.currentUid, user);
-      if (currentUser != null) {
-        try {
-          await ref
-              .read(userRepositoryProvider)
-              .upsertContact(uid, currentUser);
-        } catch (_) {}
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đã kết bạn với ${user.name}')),
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Gửi lời mời kết bạn?'),
+          content: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InitialAvatar(user.name, radius: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user.name, style: Theme.of(ctx).textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(user.email, style: Theme.of(ctx).textTheme.bodySmall),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Huỷ'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Gửi lời mời'),
+            ),
+          ],
+        ),
       );
+      if (confirmed == true && mounted) await _addContact(user);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Có lỗi xảy ra. Thử lại.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Có lỗi xảy ra. Thử lại.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _isAdding = false);
@@ -145,7 +168,9 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Xoá bạn bè'),
-        content: Text('Bạn có chắc muốn xoá ${contact.name} khỏi danh sách bạn bè?'),
+        content: Text(
+          'Bạn có chắc muốn xoá ${contact.name} khỏi danh sách bạn bè?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -166,130 +191,160 @@ class _AddFriendScreenState extends ConsumerState<AddFriendScreen>
           .read(userRepositoryProvider)
           .deleteContact(widget.currentUid, contact.uid);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Đã xoá ${contact.name}')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Đã xoá ${contact.name}')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Xoá thất bại. Thử lại.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Xoá thất bại. Thử lại.')));
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final contactsAsync =
-        ref.watch(contactsProvider(widget.currentUid));
+    final contactsAsync = ref.watch(contactsProvider(widget.currentUid));
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Bạn bè'),
-        bottom: TabBar(
+        bottom: AppTabs(
           controller: _tabController,
-          tabs: const [
-            Tab(text: 'Tìm email'),
-            Tab(text: 'Quét QR'),
-            Tab(text: 'QR của tôi'),
-          ],
+          onTap: (_) => FocusScope.of(context).unfocus(),
+          labels: const ['Tìm email', 'Quét QR', 'QR của tôi', 'Lời mời'],
         ),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _EmailSearchTab(
-                  controller: _emailController,
-                  isSearching: _isSearching,
-                  isAdding: _isAdding,
-                  foundUser: _foundUser,
-                  searchError: _searchError,
-                  onSearch: _searchByEmail,
-                  onAdd: _addContact,
-                ),
-                _QrScanTab(
-                  isAdding: _isAdding,
-                  onScanned: _handleScannedUid,
-                ),
-                _MyQrTab(currentUid: widget.currentUid),
-              ],
-            ),
-          ),
-
-          // Danh sách bạn bè hiện tại
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Danh sách bạn bè',
-                  style: Theme.of(context).textTheme.titleSmall),
-            ),
-          ),
-          // Ô tìm kiếm trong danh sách bạn bè
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: 'Tìm trong danh sách bạn bè...',
-                prefixIcon: Icon(Icons.search, size: 20),
-                border: OutlineInputBorder(),
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 8),
-              ),
-              onChanged: (v) => setState(() => _contactSearch = v.trim().toLowerCase()),
-            ),
-          ),
-          SizedBox(
-            height: 180,
-            child: contactsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Lỗi: $e')),
-              data: (list) {
-                final filtered = _contactSearch.isEmpty
-                    ? list
-                    : list
-                        .where((u) =>
-                            u.name.toLowerCase().contains(_contactSearch) ||
-                            u.email.toLowerCase().contains(_contactSearch))
-                        .toList();
-                if (list.isEmpty) {
-                  return const Center(
-                      child: Text('Chưa có bạn bè nào',
-                          style: TextStyle(color: Colors.grey)));
-                }
-                if (filtered.isEmpty) {
-                  return const Center(
-                      child: Text('Không tìm thấy bạn bè nào',
-                          style: TextStyle(color: Colors.grey)));
-                }
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                  itemCount: filtered.length,
-                  itemBuilder: (_, i) => ListTile(
-                    leading: CircleAvatar(
-                      child: Text(filtered[i].name.isNotEmpty
-                          ? filtered[i].name[0].toUpperCase()
-                          : '?'),
-                    ),
-                    title: Text(filtered[i].name),
-                    subtitle: Text(filtered[i].email,
-                        style: const TextStyle(fontSize: 12)),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                      tooltip: 'Xoá bạn bè',
-                      onPressed: () => _deleteContact(filtered[i]),
-                    ),
+      body: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            SizedBox(
+              height: _tabController.index == 3
+                  ? constraints.maxHeight
+                  : (_tabController.index == 0
+                            ? (_foundUser != null || _searchError != null
+                                  ? 220.0
+                                  : 104.0)
+                            : 320.0)
+                        .clamp(0.0, constraints.maxHeight * 0.45)
+                        .toDouble(),
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _EmailSearchTab(
+                    controller: _emailController,
+                    isSearching: _isSearching,
+                    isAdding: _isAdding,
+                    foundUser: _foundUser,
+                    searchError: _searchError,
+                    onSearch: _searchByEmail,
+                    onAdd: _addContact,
                   ),
-                );
-              },
+                  _QrScanTab(isAdding: _isAdding, onScanned: _handleScannedUid),
+                  SingleChildScrollView(
+                    child: _MyQrTab(currentUid: widget.currentUid),
+                  ),
+                  _FriendRequests(currentUid: widget.currentUid),
+                ],
+              ),
             ),
-          ),
-        ],
+
+            if (_tabController.index != 3) ...[
+              // Bạn bè hiện tại
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 4),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Bạn bè',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+              ),
+              // Ô tìm kiếm trong danh sách bạn bè
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+                child: TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Tìm bạn bè',
+                    prefixIcon: Icon(Icons.search, size: 20),
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onChanged: (v) =>
+                      setState(() => _contactSearch = v.trim().toLowerCase()),
+                ),
+              ),
+              Expanded(
+                child: contactsAsync.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Center(child: Text('Lỗi: $e')),
+                  data: (list) {
+                    final filtered = _contactSearch.isEmpty
+                        ? list
+                        : list
+                              .where(
+                                (u) =>
+                                    u.name.toLowerCase().contains(
+                                      _contactSearch,
+                                    ) ||
+                                    u.email.toLowerCase().contains(
+                                      _contactSearch,
+                                    ),
+                              )
+                              .toList();
+                    if (list.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'Chưa có bạn bè nào',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      );
+                    }
+                    if (filtered.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'Không tìm thấy bạn bè nào',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      itemCount: filtered.length,
+                      itemBuilder: (_, i) => ListTile(
+                        leading: CircleAvatar(
+                          child: Text(
+                            filtered[i].name.isNotEmpty
+                                ? filtered[i].name[0].toUpperCase()
+                                : '?',
+                          ),
+                        ),
+                        title: Text(filtered[i].name),
+                        subtitle: Text(
+                          filtered[i].email,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline,
+                            color: Colors.grey,
+                          ),
+                          tooltip: 'Xoá bạn bè',
+                          onPressed: () => _deleteContact(filtered[i]),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -319,7 +374,7 @@ class _EmailSearchTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -344,7 +399,9 @@ class _EmailSearchTab extends StatelessWidget {
                         width: 18,
                         height: 18,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       )
                     : const Icon(Icons.search),
               ),
@@ -359,9 +416,11 @@ class _EmailSearchTab extends StatelessWidget {
             Card(
               child: ListTile(
                 leading: CircleAvatar(
-                  child: Text(foundUser!.name.isNotEmpty
-                      ? foundUser!.name[0].toUpperCase()
-                      : '?'),
+                  child: Text(
+                    foundUser!.name.isNotEmpty
+                        ? foundUser!.name[0].toUpperCase()
+                        : '?',
+                  ),
                 ),
                 title: Text(foundUser!.name),
                 subtitle: Text(foundUser!.email),
@@ -372,6 +431,7 @@ class _EmailSearchTab extends StatelessWidget {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : IconButton(
+                        tooltip: 'Gửi lời mời',
                         icon: const Icon(Icons.person_add),
                         onPressed: () => onAdd(foundUser!),
                       ),
@@ -398,6 +458,7 @@ class _QrScanTab extends StatefulWidget {
 
 class _QrScanTabState extends State<_QrScanTab> {
   bool _handled = false;
+  String? _lastValue;
   final _controller = MobileScannerController();
 
   @override
@@ -409,7 +470,8 @@ class _QrScanTabState extends State<_QrScanTab> {
   void _onDetect(BarcodeCapture capture) {
     if (_handled || widget.isAdding) return;
     final value = capture.barcodes.firstOrNull?.rawValue;
-    if (value == null || value.isEmpty) return;
+    if (value == null || value.isEmpty || value == _lastValue) return;
+    _lastValue = value;
     setState(() => _handled = true);
     widget.onScanned(value).whenComplete(() {
       if (mounted) setState(() => _handled = false);
@@ -417,18 +479,25 @@ class _QrScanTabState extends State<_QrScanTab> {
   }
 
   Future<void> _pickFromGallery() async {
-    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
-    final capture = await _controller.analyzeImage(picked.path);
-    if (!mounted) return;
-    final value = capture?.barcodes.firstOrNull?.rawValue;
-    if (value == null || value.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không tìm thấy mã QR trong ảnh.')),
-      );
-      return;
+    if (_handled || widget.isAdding) return;
+    setState(() => _handled = true);
+    try {
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (picked == null) return;
+      final capture = await _controller.analyzeImage(picked.path);
+      if (!mounted) return;
+      final value = capture?.barcodes.firstOrNull?.rawValue;
+      if (value == null || value.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không tìm thấy mã QR trong ảnh.')),
+        );
+        return;
+      }
+      _lastValue = value;
+      await widget.onScanned(value);
+    } finally {
+      if (mounted) setState(() => _handled = false);
     }
-    await widget.onScanned(value);
   }
 
   @override
@@ -436,6 +505,16 @@ class _QrScanTabState extends State<_QrScanTab> {
     return Stack(
       children: [
         MobileScanner(controller: _controller, onDetect: _onDetect),
+        if (_lastValue != null && !_handled && !widget.isAdding)
+          Positioned(
+            top: 8,
+            right: 8,
+            child: FilledButton.tonalIcon(
+              onPressed: () => setState(() => _lastValue = null),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Quét lại'),
+            ),
+          ),
         if (widget.isAdding)
           const ColoredBox(
             color: Colors.black54,
@@ -467,7 +546,7 @@ class _QrScanTabState extends State<_QrScanTab> {
               ),
               icon: const Icon(Icons.photo_library_outlined, size: 18),
               label: const Text('Chọn ảnh từ thư viện'),
-              onPressed: widget.isAdding ? null : _pickFromGallery,
+              onPressed: widget.isAdding || _handled ? null : _pickFromGallery,
             ),
           ),
         ),
@@ -507,15 +586,10 @@ class _MyQrTab extends ConsumerWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
-                'Mã QR kết bạn của bạn',
+                'QR của tôi',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Đưa bạn bè quét mã này để kết bạn ngay lập tức',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 13),
-              ),
               const SizedBox(height: 20),
               Container(
                 padding: const EdgeInsets.all(16),
@@ -524,7 +598,7 @@ class _MyQrTab extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
+                      color: Colors.black.withValues(alpha: 0.04),
                       blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
@@ -540,7 +614,10 @@ class _MyQrTab extends ConsumerWidget {
               const SizedBox(height: 16),
               Text(
                 name,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ],
           ),
@@ -548,4 +625,189 @@ class _MyQrTab extends ConsumerWidget {
       },
     );
   }
+}
+
+class _FriendRequests extends ConsumerStatefulWidget {
+  final String currentUid;
+  const _FriendRequests({required this.currentUid});
+  @override
+  ConsumerState<_FriendRequests> createState() => _FriendRequestsState();
+}
+
+class _FriendRequestsState extends ConsumerState<_FriendRequests> {
+  final Set<String> _pending = {};
+  Future<void> _act(String id, Future<void> Function() action) async {
+    setState(() => _pending.add(id));
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e is StateError
+                  ? e.message
+                  : 'Không thể cập nhật lời mời. Thử lại.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pending.remove(id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ref
+      .watch(friendRequestsProvider(widget.currentUid))
+      .when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (_, _) => Center(
+          child: TextButton(
+            onPressed: () =>
+                ref.invalidate(friendRequestsProvider(widget.currentUid)),
+            child: const Text('Tải lại lời mời'),
+          ),
+        ),
+        data: (requests) {
+          if (requests.isEmpty) {
+            return const AppEmptyState(
+              icon: Icons.person_add_alt_1_outlined,
+              title: 'Chưa có lời mời',
+            );
+          }
+          final incoming = requests
+              .where((r) => r.recipientId == widget.currentUid)
+              .toList();
+          final outgoing = requests
+              .where((r) => r.senderId == widget.currentUid)
+              .toList();
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+            children: [
+              for (final group in [
+                ('Lời mời nhận', incoming),
+                ('Đã gửi', outgoing),
+              ])
+                if (group.$2.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            group.$1,
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        Text(
+                          '${group.$2.length}',
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(color: AppTheme.muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  for (final request in group.$2) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.line),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              InitialAvatar(
+                                request.recipientId == widget.currentUid
+                                    ? request.senderName
+                                    : request.recipientName,
+                                radius: 22,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                  ),
+                                  child: Text(
+                                    request.recipientId == widget.currentUid
+                                        ? request.senderName
+                                        : request.recipientName,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                ),
+                              ),
+                              if (_pending.contains(request.id))
+                                const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              if (request.recipientId == widget.currentUid)
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: const Size(0, 44),
+                                  ),
+                                  onPressed: _pending.contains(request.id)
+                                      ? null
+                                      : () => _act(
+                                          request.id,
+                                          () => ref
+                                              .read(userRepositoryProvider)
+                                              .acceptFriendRequest(request),
+                                        ),
+                                  icon: const Icon(Icons.check, size: 18),
+                                  label: const Text('Chấp nhận'),
+                                ),
+                              OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size(0, 44),
+                                  foregroundColor: AppTheme.muted,
+                                  side: const BorderSide(color: AppTheme.line),
+                                ),
+                                onPressed: _pending.contains(request.id)
+                                    ? null
+                                    : () => _act(
+                                        request.id,
+                                        () => ref
+                                            .read(userRepositoryProvider)
+                                            .dismissFriendRequest(request),
+                                      ),
+                                child: Text(
+                                  request.senderId == widget.currentUid
+                                      ? 'Huỷ lời mời'
+                                      : 'Từ chối',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  const SizedBox(height: 20),
+                ],
+            ],
+          );
+        },
+      );
 }

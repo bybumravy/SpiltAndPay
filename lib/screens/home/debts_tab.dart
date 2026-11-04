@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/firebase_providers.dart';
 import '../../core/money.dart';
+import '../../ui/app_theme.dart';
+import '../../ui/content_rows.dart';
+import '../../ui/app_tabs.dart';
 import '../../models/debt.dart';
 import '../../repositories/debt_repository.dart';
 import '../../repositories/user_repository.dart';
 import '../debt/debt_detail_screen.dart';
-import 'widgets/notification_bell_button.dart';
-import 'widgets/overdue_debt_banner.dart';
 
 class DebtsTab extends ConsumerWidget {
   const DebtsTab({super.key});
@@ -21,44 +22,89 @@ class DebtsTab extends ConsumerWidget {
     final debtsAsync = ref.watch(userDebtsProvider(user.uid));
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Công nợ'),
-        actions: [
-          NotificationBellButton(currentUid: user.uid),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Công nợ')),
       body: debtsAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Lỗi: $e')),
         data: (debts) {
           if (debts.isEmpty) {
-            return const Center(child: Text('Không có công nợ nào'));
+            return const Center(
+              child: AppEmptyState(
+                icon: Icons.account_balance_wallet_outlined,
+                title: 'Không có công nợ nào',
+              ),
+            );
           }
-
-          final debtsToPay =
-              debts.where((d) => d.amountOwedBy(user.uid) > 0).toList();
-          final totalOwed = debtsToPay.fold<int>(
+          final owed = debts.fold<int>(
             0,
-            (sum, d) => sum + d.amountOwedBy(user.uid),
+            (total, d) =>
+                total +
+                (d.amountOwedBy(user.uid) > 0 ? d.amountOwedBy(user.uid) : 0),
           );
-
-          return Column(
+          final receivable = debts.fold<int>(
+            0,
+            (total, d) =>
+                total +
+                (d.amountOwedBy(user.uid) < 0 ? -d.amountOwedBy(user.uid) : 0),
+          );
+          return ListView(
             children: [
-              if (totalOwed > 0)
-                OverdueDebtBanner(
-                  totalOwed: totalOwed,
-                  count: debtsToPay.length,
-                  onTap: () {},
-                ),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: debts.length,
-                  itemBuilder: (_, i) => _DebtTile(
-                    debt: debts[i],
-                    currentUid: user.uid,
-                  ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Bạn nợ',
+                            style: TextStyle(color: AppTheme.muted),
+                          ),
+                          const SizedBox(height: 6),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              formatVnd(owed),
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(color: AppTheme.red),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Cần thu',
+                            style: TextStyle(color: AppTheme.muted),
+                          ),
+                          const SizedBox(height: 6),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              formatVnd(receivable),
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(color: AppTheme.green),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const Divider(indent: 24, endIndent: 24),
+              for (final debt in debts) ...[
+                _DebtTile(debt: debt, currentUid: user.uid),
+                const Divider(indent: 24, endIndent: 24),
+              ],
             ],
           );
         },
@@ -86,31 +132,28 @@ class _DebtTile extends ConsumerWidget {
     );
 
     return ListTile(
-      leading: CircleAvatar(
-        child: Text(otherName.isNotEmpty ? otherName[0].toUpperCase() : '?'),
-      ),
-      title: Text(otherName),
-      subtitle: Text(
-        iAmDebtor ? 'Bạn nợ' : 'Được nợ',
-        style: TextStyle(
-          color: iAmDebtor ? Colors.red : Colors.green,
-          fontSize: 12,
+      titleAlignment: ListTileTitleAlignment.top,
+      leading: InitialAvatar(otherName),
+      title: LabelValueRow(
+        label: Text(otherName, style: Theme.of(context).textTheme.titleMedium),
+        value: Text(
+          formatVnd(netAmount.abs()),
+          textAlign: TextAlign.end,
+          style: Theme.of(context).textTheme.titleSmall
+              ?.copyWith(color: iAmDebtor ? AppTheme.red : AppTheme.green),
         ),
       ),
-      trailing: Text(
-        formatVnd(netAmount.abs()),
+      subtitle: Text(
+        iAmDebtor ? 'Bạn nợ' : 'Cần thu',
         style: TextStyle(
-          fontWeight: FontWeight.bold,
-          color: iAmDebtor ? Colors.red : Colors.green,
+          color: iAmDebtor ? AppTheme.red : AppTheme.green,
+          fontSize: 12,
         ),
       ),
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => DebtDetailScreen(
-            debt: debt,
-            currentUid: currentUid,
-          ),
+          builder: (_) => DebtDetailScreen(debt: debt, currentUid: currentUid),
         ),
       ),
     );

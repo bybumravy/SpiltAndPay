@@ -17,6 +17,41 @@ void main() {
     });
   });
 
+  test('space-grouped amounts and imperfect Vietnamese accents', () {
+    expect(parseAmount('606 549'), 606549);
+    expect(parseAmount('1\u00a0250\u00a0000'), 1250000);
+    final r = findBillTotal([
+      'Nội dung: thanh toán tiền điện',
+      'tháng 09/2015',
+      'Thành tiền',
+      '551 408',
+      'Thuế GTGT 55 141',
+      '|Tóng tiền 606 549',
+      'Tiền khách đưa 1 000 000',
+    ]);
+    expect(r.total, 606549);
+    expect(r.confident, isTrue);
+  });
+  test('reconstructs separate OCR column blocks into visual receipt rows', () {
+    final rows = groupBillLines(const [
+      BillTextLine('Tóng tiền', 0, 100, 100, 20),
+      BillTextLine('Thuế GTGT', 0, 60, 100, 20),
+      BillTextLine('606 549', 200, 102, 100, 20),
+      BillTextLine('55 141', 200, 61, 100, 20),
+    ]);
+    expect(rows, ['Thuế GTGT 55 141', 'Tóng tiền 606 549']);
+    expect(findBillTotal(rows).total, 606549);
+  });
+  test('table headers and company names cannot identify a final total', () {
+    final r = findBillTotal([
+      'TỔNG CÔNG TY ĐIỆN LỰC',
+      '123456',
+      'Đơn giá Thành tiền',
+      '700000',
+    ]);
+    expect(r.confident, isFalse);
+  });
+
   group('findBillTotal', () {
     test('lấy số cạnh "Tổng cộng", không phải số lớn nhất', () {
       final r = findBillTotal([
