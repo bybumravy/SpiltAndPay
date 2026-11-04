@@ -11,6 +11,7 @@ import 'package:forui/forui.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:splitpay/core/firebase_providers.dart';
 import 'package:splitpay/core/bill_ocr.dart';
+import 'package:splitpay/core/gemini_bill_scanner.dart';
 import 'package:splitpay/screens/session/batch_bill_screen.dart';
 import 'package:splitpay/models/app_user.dart';
 import 'package:splitpay/models/friend_request.dart';
@@ -662,16 +663,27 @@ void main() {
           payerIds: const {'hoang', 'linh', 'nam'},
           initialPayerId: 'hoang',
           capture: () async => '/preview-bill.jpg',
-          scan: (_) async => const BillScanResult(
-            total: 350000,
-            confident: true,
-            candidates: [350000],
+          scan: (_) async => const BillBatchResult(
+            receipts: [
+              BillReceipt(
+                0,
+                BillScanResult(
+                  total: 350000,
+                  confident: true,
+                  candidates: [350000],
+                ),
+              ),
+            ],
           ),
         ),
         size: narrow ? const Size(320, 740) : const Size(390, 844),
         textScale: narrow ? 1.3 : 1,
       );
-      await tester.tap(find.text('Chụp hoá đơn'));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Chụp hoá đơn'));
+      await tester.pumpAndSettle();
+      expect(find.text('350.000'), findsNothing);
+      await capture(tester, narrow ? 'batch-photos-narrow' : 'batch-photos');
+      await tester.tap(find.text('Đọc 1 ảnh'));
       await tester.pumpAndSettle();
       expect(find.text('350.000'), findsOneWidget);
       expect(tester.takeException(), isNull);
