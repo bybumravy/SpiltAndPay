@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -582,41 +583,97 @@ class SessionRepository {
     return sorted;
   }
 
-  Stream<List<Expense>> watchSessionExpenses(String sessionId) {
-    return _sessions.doc(sessionId).collection('expenses').snapshots().map((
-      snapshot,
-    ) {
-      return sortExpensesBySequence(
-        snapshot.docs
-            .map((doc) => Expense.fromMap(doc.id, doc.data()))
-            .toList(),
-      );
-    });
+  /// Stream các khoản chi của [sessionId], sắp xếp theo sequence.
+  /// Bổ sung cơ chế auto-retry khi gặp độ trễ đồng bộ Auth token (permission-denied thoáng qua).
+  Stream<List<Expense>> watchSessionExpenses(String sessionId) async* {
+    var retryCount = 0;
+    while (true) {
+      try {
+        await for (final snapshot
+            in _sessions.doc(sessionId).collection('expenses').snapshots()) {
+          retryCount = 0;
+          yield sortExpensesBySequence(
+            snapshot.docs
+                .map((doc) => Expense.fromMap(doc.id, doc.data()))
+                .toList(),
+          );
+        }
+        break;
+      } catch (e) {
+        if (e.toString().toLowerCase().contains('permission-denied') &&
+            retryCount < 4) {
+          retryCount++;
+          debugPrint(
+            'watchSessionExpenses: transient permission-denied, retrying ($retryCount/4)...',
+          );
+          await Future.delayed(Duration(milliseconds: 500 * retryCount));
+          continue;
+        }
+        rethrow;
+      }
+    }
   }
 
   /// Stream phiên của [uid], mới nhất trước.
-  Stream<List<Session>> watchUserSessions(String uid) {
-    return _sessions.where('memberUserIds', arrayContains: uid).snapshots().map(
-      (s) {
-        final sessions = s.docs
-            .map((d) => Session.fromMap(d.id, d.data()))
-            .toList();
-        sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-        return sessions;
-      },
-    );
+  /// Bổ sung cơ chế auto-retry khi gặp độ trễ đồng bộ Auth token (permission-denied thoáng qua).
+  Stream<List<Session>> watchUserSessions(String uid) async* {
+    var retryCount = 0;
+    while (true) {
+      try {
+        await for (final s
+            in _sessions
+                .where('memberUserIds', arrayContains: uid)
+                .snapshots()) {
+          retryCount = 0;
+          final sessions = s.docs
+              .map((d) => Session.fromMap(d.id, d.data()))
+              .toList();
+          sessions.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          yield sessions;
+        }
+        break;
+      } catch (e) {
+        if (e.toString().toLowerCase().contains('permission-denied') &&
+            retryCount < 4) {
+          retryCount++;
+          debugPrint(
+            'watchUserSessions: transient permission-denied, retrying ($retryCount/4)...',
+          );
+          await Future.delayed(Duration(milliseconds: 500 * retryCount));
+          continue;
+        }
+        rethrow;
+      }
+    }
   }
 
   /// Stream danh sách thành viên của [sessionId].
-  Stream<List<SessionMember>> watchSessionMembers(String sessionId) {
-    return _sessions
-        .doc(sessionId)
-        .collection('members')
-        .snapshots()
-        .map(
-          (s) =>
-              s.docs.map((d) => SessionMember.fromMap(d.id, d.data())).toList(),
-        );
+  /// Bổ sung cơ chế auto-retry khi gặp độ trễ đồng bộ Auth token (permission-denied thoáng qua).
+  Stream<List<SessionMember>> watchSessionMembers(String sessionId) async* {
+    var retryCount = 0;
+    while (true) {
+      try {
+        await for (final s
+            in _sessions.doc(sessionId).collection('members').snapshots()) {
+          retryCount = 0;
+          yield s.docs
+              .map((d) => SessionMember.fromMap(d.id, d.data()))
+              .toList();
+        }
+        break;
+      } catch (e) {
+        if (e.toString().toLowerCase().contains('permission-denied') &&
+            retryCount < 4) {
+          retryCount++;
+          debugPrint(
+            'watchSessionMembers: transient permission-denied, retrying ($retryCount/4)...',
+          );
+          await Future.delayed(Duration(milliseconds: 500 * retryCount));
+          continue;
+        }
+        rethrow;
+      }
+    }
   }
 
   /// Computes and writes the close result from client-side accounting.

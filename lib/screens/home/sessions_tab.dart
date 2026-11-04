@@ -39,7 +39,12 @@ class _SessionsTabState extends ConsumerState<SessionsTab> {
               children: [
                 const Icon(Icons.error_outline, size: 48, color: Colors.red),
                 const SizedBox(height: 12),
-                Text('Lỗi: $e', textAlign: TextAlign.center),
+                Text(
+                  e.toString().toLowerCase().contains('permission-denied')
+                      ? 'Chưa thể tải danh sách phiên do đang đồng bộ kết nối. Vui lòng thử lại.'
+                      : 'Lỗi: $e',
+                  textAlign: TextAlign.center,
+                ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
                   onPressed: () =>

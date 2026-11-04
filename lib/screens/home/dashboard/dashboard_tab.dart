@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase_providers.dart';
-import '../../../models/session.dart';
+
 import '../../../repositories/debt_repository.dart';
 import '../../../repositories/session_repository.dart';
 import '../../../repositories/user_repository.dart';
@@ -17,33 +17,8 @@ import 'widgets/net_balance_card.dart';
 import 'widgets/quick_actions_bar.dart';
 import 'widgets/recent_activity_section.dart';
 
-/// Provider phiên có cơ chế tự động thử lại (auto-retry với backoff)
-/// bảo vệ khỏi độ trễ đồng bộ Auth token trên thiết bị di động.
-final dashboardSessionsProvider = StreamProvider.autoDispose
-    .family<List<Session>, String>((ref, uid) async* {
-      var retryCount = 0;
-      while (true) {
-        try {
-          final stream =
-              ref.watch(sessionRepositoryProvider).watchUserSessions(uid);
-          await for (final list in stream) {
-            retryCount = 0;
-            yield list;
-          }
-          break;
-        } catch (e) {
-          if (e.toString().contains('permission-denied') && retryCount < 4) {
-            retryCount++;
-            debugPrint(
-              'dashboardSessionsProvider: transient permission-denied, retrying ($retryCount/4)...',
-            );
-            await Future.delayed(Duration(milliseconds: 500 * retryCount));
-            continue;
-          }
-          rethrow;
-        }
-      }
-    });
+/// Tái sử dụng userSessionsProvider đã tích hợp cơ chế auto-retry với backoff từ SessionRepository.
+final dashboardSessionsProvider = userSessionsProvider;
 
 class DashboardTab extends ConsumerWidget {
   final void Function(int tabIndex) onNavigateToTab;
@@ -154,10 +129,7 @@ class DashboardTab extends ConsumerWidget {
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               children: [
                 // 1. Thẻ Cán cân tài chính ròng
                 NetBalanceCard(
@@ -171,8 +143,7 @@ class DashboardTab extends ConsumerWidget {
                   onNewSession: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          CreateSessionScreen(creatorUid: user.uid),
+                      builder: (_) => CreateSessionScreen(creatorUid: user.uid),
                     ),
                   ),
                   onAddFriend: () => Navigator.push(

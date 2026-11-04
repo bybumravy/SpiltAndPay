@@ -178,7 +178,9 @@ class SessionDetailScreen extends ConsumerWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Không tải được thành viên: $e',
+                        e.toString().toLowerCase().contains('permission-denied')
+                            ? 'Không tải được thành viên: Kết nối hoặc phiên xác thực đang đồng bộ. Vui lòng thử lại.'
+                            : 'Không tải được thành viên: $e',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
