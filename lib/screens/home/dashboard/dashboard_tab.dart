@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/firebase_providers.dart';
+import '../../../ui/app_tabs.dart';
+import '../../../ui/app_theme.dart';
 
 import '../../../repositories/debt_repository.dart';
 import '../../../repositories/session_repository.dart';
@@ -34,52 +36,9 @@ class DashboardTab extends ConsumerWidget {
     final debtsAsync = ref.watch(userDebtsProvider(user.uid));
     final sessionsAsync = ref.watch(dashboardSessionsProvider(user.uid));
 
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
-        title: userProfileAsync.maybeWhen(
-          data: (profile) => Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundImage: profile?.avatarUrl != null
-                    ? CachedNetworkImageProvider(profile!.avatarUrl!)
-                    : null,
-                child: profile?.avatarUrl == null
-                    ? Text(
-                        (profile?.name.isNotEmpty ?? false)
-                            ? profile!.name[0].toUpperCase()
-                            : '?',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Xin chào, ${profile?.name ?? "Bạn"} 👋',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      'Tổng quan',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          orElse: () => const Text('Tổng quan tài chính'),
-        ),
+        title: const Text('Tổng quan'),
         actions: [NotificationBellButton(currentUid: user.uid)],
       ),
       body: RefreshIndicator(
@@ -90,28 +49,21 @@ class DashboardTab extends ConsumerWidget {
         },
         child: debtsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.cloud_off, size: 48, color: Colors.grey.shade400),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Không thể tải dữ liệu công nợ',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    onPressed: () =>
-                        ref.invalidate(userDebtsProvider(user.uid)),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Thử lại'),
-                  ),
-                ],
+          error: (e, _) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              const AppEmptyState(
+                icon: Icons.cloud_off_outlined,
+                title: 'Chưa tải được công nợ',
               ),
-            ),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => ref.invalidate(userDebtsProvider(user.uid)),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Thử lại'),
+                ),
+              ),
+            ],
           ),
           data: (debts) {
             // Tính tổng nợ và tổng được nợ
@@ -129,9 +81,58 @@ class DashboardTab extends ConsumerWidget {
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
               children: [
-                // 1. Thẻ Cán cân tài chính ròng
+                userProfileAsync.maybeWhen(
+                  data: (profile) {
+                    final name = profile?.name.trim();
+                    final displayName = name == null || name.isEmpty
+                        ? 'Bạn'
+                        : name;
+                    final avatarUrl = profile?.avatarUrl?.trim();
+                    final fallback = InitialAvatar(displayName, radius: 26);
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 4, bottom: 24),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Xin chào,',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  displayName,
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(fontSize: 23),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          ExcludeSemantics(
+                            child: avatarUrl == null || avatarUrl.isEmpty
+                                ? fallback
+                                : ClipOval(
+                                    child: CachedNetworkImage(
+                                      imageUrl: avatarUrl,
+                                      width: 52,
+                                      height: 52,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, _) => fallback,
+                                      errorWidget: (_, _, _) => fallback,
+                                    ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  orElse: () => const SizedBox.shrink(),
+                ),
                 NetBalanceCard(
                   totalOwed: totalOwed,
                   totalReceivable: totalReceivable,
@@ -176,32 +177,19 @@ class DashboardTab extends ConsumerWidget {
                     padding: EdgeInsets.symmetric(vertical: 24),
                     child: Center(child: CircularProgressIndicator()),
                   ),
-                  error: (e, _) => Card(
-                    margin: const EdgeInsets.only(top: 8),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(Icons.cloud_off, color: Colors.grey.shade500),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Chưa đồng bộ được hoạt động gần đây.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () => ref.invalidate(
-                              dashboardSessionsProvider(user.uid),
-                            ),
-                            child: const Text('Thử lại'),
-                          ),
-                        ],
+                  error: (e, _) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Chưa tải được phiên gần đây',
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                    ),
+                      TextButton(
+                        onPressed: () =>
+                            ref.invalidate(dashboardSessionsProvider(user.uid)),
+                        child: const Text('Thử lại'),
+                      ),
+                    ],
                   ),
                   data: (sessions) => RecentActivitySection(
                     sessions: sessions,

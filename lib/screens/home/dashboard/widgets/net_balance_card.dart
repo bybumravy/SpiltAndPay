@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/money.dart';
+import '../../../../ui/app_theme.dart';
 
 class NetBalanceCard extends StatelessWidget {
   final int totalOwed;
@@ -14,148 +15,109 @@ class NetBalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final netBalance = totalReceivable - totalOwed;
-    final isPositive = netBalance > 0;
-    final isNegative = netBalance < 0;
-
+    final net = totalReceivable - totalOwed;
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.account_balance_wallet,
-                  color: colorScheme.primary,
-                  size: 20,
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppTheme.soft,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Công nợ ròng',
+            style: theme.textTheme.bodyMedium?.copyWith(color: AppTheme.muted),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${net > 0
+                    ? '+'
+                    : net < 0
+                    ? '-'
+                    : ''}${formatVnd(net.abs())}',
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  color: AppTheme.purple,
+                  fontWeight: FontWeight.w700,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'SỐ DƯ',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              isPositive
-                  ? '+${formatVnd(netBalance)}'
-                  : isNegative
-                      ? '-${formatVnd(netBalance.abs())}'
-                      : formatVnd(0),
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: isPositive
-                    ? Colors.green.shade700
-                    : isNegative
-                        ? Colors.red.shade700
-                        : colorScheme.onSurface,
               ),
             ),
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                // Cần trả
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.arrow_downward,
-                          size: 16,
-                          color: Colors.red.shade700,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Cần trả',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                            Text(
-                              formatVnd(totalOwed),
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.red.shade700,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+          ),
+          const SizedBox(height: 24),
+          const Divider(height: 1),
+          const SizedBox(height: 20),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final entries = [
+                _Amount(
+                  label: 'Cần trả',
+                  amount: totalOwed,
+                  color: AppTheme.red,
                 ),
-                const SizedBox(width: 12),
-                // Cần thu
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.arrow_upward,
-                          size: 16,
-                          color: Colors.green.shade700,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Cần thu',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                            Text(
-                              formatVnd(totalReceivable),
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green.shade700,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                _Amount(
+                  label: 'Cần thu',
+                  amount: totalReceivable,
+                  color: AppTheme.green,
                 ),
-              ],
-            ),
-          ],
-        ),
+              ];
+              final stack =
+                  constraints.maxWidth < 250 ||
+                  MediaQuery.textScalerOf(context).scale(15) > 18;
+              return stack
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        entries[0],
+                        const SizedBox(height: 16),
+                        entries[1],
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: entries[0]),
+                        const SizedBox(width: 16),
+                        Expanded(child: entries[1]),
+                      ],
+                    );
+            },
+          ),
+        ],
       ),
     );
   }
+}
+
+class _Amount extends StatelessWidget {
+  final String label;
+  final int amount;
+  final Color color;
+  const _Amount({
+    required this.label,
+    required this.amount,
+    required this.color,
+  });
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: Theme.of(context).textTheme.bodySmall
+            ?.copyWith(color: AppTheme.muted),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        formatVnd(amount),
+        style: Theme.of(context).textTheme.titleMedium
+            ?.copyWith(color: color, fontWeight: FontWeight.w600),
+      ),
+    ],
+  );
 }

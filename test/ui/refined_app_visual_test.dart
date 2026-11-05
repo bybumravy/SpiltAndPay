@@ -9,11 +9,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:forui/forui.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:splitpay/screens/home/dashboard/dashboard_tab.dart';
+import 'package:splitpay/screens/home/dashboard/widgets/action_required_section.dart';
 import 'package:splitpay/core/firebase_providers.dart';
 import 'package:splitpay/core/bill_ocr.dart';
 import 'package:splitpay/core/gemini_bill_scanner.dart';
 import 'package:splitpay/screens/session/batch_bill_screen.dart';
 import 'package:splitpay/models/app_user.dart';
+import 'package:splitpay/models/app_notification.dart';
+import 'package:splitpay/repositories/notification_repository.dart';
+import 'package:splitpay/screens/notifications/notification_center_screen.dart';
 import 'package:splitpay/models/friend_request.dart';
 import 'package:splitpay/models/debt.dart';
 import 'package:splitpay/models/expense.dart';
@@ -51,6 +57,17 @@ class _Auth implements FirebaseAuth {
 class _Users implements UserRepository {
   @override
   Future<AppUser?> findByUid(String uid) async => users[uid];
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Notifications implements NotificationRepository {
+  int allRead = 0;
+  @override
+  Future<void> markAllAsRead(String uid) async {
+    allRead++;
+  }
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -165,6 +182,10 @@ Future<void> pumpScreen(
   List<Expense>? previewExpenses,
   List<Debt>? previewDebts,
   Map<String, AppUser>? previewUsers,
+  List<AppNotification> previewNotifications = const [],
+  List<Session>? previewSessions,
+  bool notificationError = false,
+  NotificationRepository? previewNotificationRepository,
 }) async {
   await tester.pumpWidget(const SizedBox.shrink());
   await tester.pumpAndSettle();
@@ -179,6 +200,16 @@ Future<void> pumpScreen(
     ProviderScope(
       overrides: [
         authProvider.overrideWithValue(_Auth()),
+        userNotificationsProvider('hoang').overrideWith(
+          (ref) => notificationError
+              ? Stream<List<AppNotification>>.error(
+                  Exception('permission-denied'),
+                )
+              : Stream.value(previewNotifications),
+        ),
+        notificationRepositoryProvider.overrideWithValue(
+          previewNotificationRepository ?? _Notifications(),
+        ),
         userRepositoryProvider.overrideWithValue(previewRepository ?? _Users()),
         for (final user in {...users, ...?previewUsers}.values)
           currentUserProvider(user.uid)
@@ -188,8 +219,9 @@ Future<void> pumpScreen(
         contactsProvider(
           'hoang',
         ).overrideWith((ref) => Stream.value([users['linh']!, users['nam']!])),
-        userSessionsProvider('hoang')
-            .overrideWith((ref) => Stream.value([previewSession ?? session])),
+        userSessionsProvider('hoang').overrideWith(
+          (ref) => Stream.value(previewSessions ?? [previewSession ?? session]),
+        ),
         sessionMembersProvider('dalat')
             .overrideWith((ref) => Stream.value(previewMembers ?? members)),
         sessionExpensesProvider('dalat')
@@ -242,6 +274,7 @@ Future<void> capture(WidgetTester tester, String name) async {
 
 void main() {
   setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
     final root =
         Platform.environment['FLUTTER_ROOT'] ??
         File(Platform.resolvedExecutable)
@@ -269,6 +302,156 @@ void main() {
       );
     await icons.load();
   });
+  testWidgets('dashboard and inbox visual states', (tester) async {
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.binding.setSurfaceSize(null);
+    });
+    final notices = [
+      AppNotification(
+        id: 'debt_confirm_nam',
+        title: 'Nam đã chuyển tiền',
+        body: 'Nam đã chuyển 80.000đ. Xác nhận khoản thanh toán.',
+        type: NotificationType.paymentPending,
+        createdAt: DateTime(2026, 11, 5, 10, 30),
+      ),
+      AppNotification(
+        id: 'debt_need_pay_linh',
+        title: 'Khoản cần trả cho Linh',
+        body: 'Bạn còn nợ Linh 150.000đ.',
+        type: NotificationType.debtReminder,
+        createdAt: DateTime(2026, 11, 5, 9),
+      ),
+      AppNotification(
+        id: 'closed',
+        title: 'Phiên Đà Lạt đã đóng',
+        body: 'Tổng chi 1.200.000đ, chia cho 3 người.',
+        type: NotificationType.sessionClosed,
+        createdAt: DateTime(2026, 11, 4, 19),
+      ),
+      AppNotification(
+        id: 'read',
+        title: 'Đã xác nhận thanh toán',
+        body: 'Linh đã xác nhận khoản thanh toán của bạn.',
+        type: NotificationType.paymentConfirmed,
+        isRead: true,
+        createdAt: DateTime(2026, 11, 3),
+      ),
+    ];
+    for (final narrow in [false, true]) {
+      final size = narrow ? const Size(320, 740) : const Size(390, 844);
+      final scale = narrow ? 1.3 : 1.0;
+      await pumpScreen(
+        tester,
+        const HomeScreen(),
+        size: size,
+        textScale: scale,
+        previewNotifications: notices,
+      );
+      expect(tester.takeException(), isNull);
+      await capture(tester, 'dashboard${narrow ? '-narrow' : ''}');
+      await pumpScreen(
+        tester,
+        const NotificationCenterScreen(),
+        size: size,
+        textScale: scale,
+        previewNotifications: notices,
+      );
+      expect(tester.takeException(), isNull);
+      await capture(tester, 'notifications${narrow ? '-narrow' : ''}');
+    }
+    await pumpScreen(tester, const NotificationCenterScreen());
+    await capture(tester, 'notifications-empty');
+    await pumpScreen(
+      tester,
+      const NotificationCenterScreen(),
+      notificationError: true,
+    );
+    expect(find.text('Chưa tải được thông báo'), findsOneWidget);
+    expect(find.textContaining('permission-denied'), findsNothing);
+    await capture(tester, 'notifications-error');
+    final repo = _Notifications();
+    await pumpScreen(
+      tester,
+      const NotificationCenterScreen(),
+      previewNotifications: notices,
+      previewNotificationRepository: repo,
+    );
+    expect(find.text('Đã xác nhận thanh toán'), findsNothing);
+    expect(find.text('Cần xác nhận'), findsOneWidget);
+    expect(find.text('CHƯA TRẢ'), findsNothing);
+    await tester.tap(find.widgetWithText(Tab, 'Tất cả'));
+    await tester.pumpAndSettle();
+    expect(find.text('Đã xác nhận thanh toán'), findsOneWidget);
+    await tester.tap(find.byTooltip('Đánh dấu đã đọc'));
+    await tester.pumpAndSettle();
+    expect(repo.allRead, 1);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(NotificationCenterScreen)),
+    );
+    expect(container.read(readNotificationIdsProvider), contains('closed'));
+    expect(
+      container.read(readNotificationIdsProvider),
+      isNot(contains('debt_confirm_nam')),
+    );
+    expect(
+      container.read(readNotificationIdsProvider),
+      isNot(contains('debt_need_pay_linh')),
+    );
+    await pumpScreen(
+      tester,
+      const HomeScreen(),
+      previewDebts: [],
+      previewSessions: [],
+    );
+    await capture(tester, 'dashboard-empty');
+    await pumpScreen(
+      tester,
+      const HomeScreen(),
+      size: const Size(320, 740),
+      textScale: 1.3,
+      previewDebts: [
+        Debt(
+          userA: 'hoang',
+          userB: 'linh',
+          balance: 9876543210,
+          updatedAt: DateTime(2026),
+        ),
+        Debt(
+          userA: 'hoang',
+          userB: 'nam',
+          balance: -80000,
+          pendingPaymentId: 'pending',
+          updatedAt: DateTime(2026),
+        ),
+      ],
+      previewUsers: {
+        'linh': const AppUser(
+          uid: 'linh',
+          name: 'Nguyễn Thị Linh với tên rất dài',
+          email: 'linh@example.com',
+        ),
+      },
+    );
+    await capture(tester, 'dashboard-large-amount');
+    await tester.ensureVisible(find.byType(ActionRequiredSection));
+    await tester.pumpAndSettle();
+    expect(find.text('Cần xác nhận'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await capture(tester, 'dashboard-pending-narrow');
+    var target = -1;
+    await pumpScreen(
+      tester,
+      DashboardTab(onNavigateToTab: (index) => target = index),
+    );
+    await tester.tap(find.text('Công nợ'));
+    expect(target, 2);
+    await tester.ensureVisible(find.text('Tất cả'));
+    await tester.tap(find.text('Tất cả'));
+    expect(target, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('preview primary screens and navigation at phone size', (
     tester,
   ) async {

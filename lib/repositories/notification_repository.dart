@@ -81,9 +81,7 @@ class NotificationRepository {
 }
 
 final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
-  return NotificationRepository(
-    ref.watch(firestoreProvider),
-  );
+  return NotificationRepository(ref.watch(firestoreProvider));
 });
 
 class ReadNotificationIdsNotifier extends StateNotifier<Set<String>> {
@@ -115,9 +113,11 @@ class ReadNotificationIdsNotifier extends StateNotifier<Set<String>> {
   Future<void> markAllRead(List<String> notifIds) async {
     // Lọc bỏ các thông báo nợ chưa trả và chờ xác nhận (chỉ ẩn các thông báo được phép như xác nhận thành công, cho vay, v.v.)
     final dismissable = notifIds
-        .where((id) =>
-            !id.startsWith('debt_need_pay_') &&
-            !id.startsWith('debt_confirm_'))
+        .where(
+          (id) =>
+              !id.startsWith('debt_need_pay_') &&
+              !id.startsWith('debt_confirm_'),
+        )
         .toList();
     if (dismissable.isEmpty) return;
     final updated = {...state, ...dismissable};
@@ -151,9 +151,8 @@ final userNotificationsProvider = StreamProvider.autoDispose
           smartNotifs.add(
             AppNotification(
               id: notifId,
-              title: '🔔 Cần thanh toán nợ',
-              body:
-                  'Bạn đang có khoản nợ ${formatVnd(owed)}. Chạm để mở App Ngân hàng chuyển khoản ngay!',
+              title: 'Khoản cần thanh toán',
+              body: 'Số tiền cần trả: ${formatVnd(owed)}.',
               type: NotificationType.debtReminder,
               targetDebtId: debtDocId,
               isRead: false, // Luôn luôn là false khi còn nợ!
@@ -164,14 +163,12 @@ final userNotificationsProvider = StreamProvider.autoDispose
           // 2. Phía chủ nợ: DUY NHẤT 1 THÔNG BÁO khi con nợ đã chuyển tiền xin xác nhận
           // TUYỆT ĐỐI KHÔNG ĐƯỢC ẨN. isRead luôn là false.
           // CHỈ BIẾN MẤT khi chủ nợ bấm xác nhận nhận tiền (pendingPaymentId được xóa).
-          final notifId =
-              'debt_confirm_${debtDocId}_${debt.pendingPaymentId}';
+          final notifId = 'debt_confirm_${debtDocId}_${debt.pendingPaymentId}';
           smartNotifs.add(
             AppNotification(
               id: notifId,
-              title: '⚡ Chờ bạn xác nhận thanh toán',
-              body:
-                  'Đối phương đã bấm chuyển tiền ${formatVnd(owed.abs())}. Chạm để kiểm tra và xác nhận!',
+              title: 'Cần xác nhận thanh toán',
+              body: 'Khoản chuyển ${formatVnd(owed.abs())} đang chờ xác nhận.',
               type: NotificationType.paymentPending,
               targetDebtId: debtDocId,
               isRead: false,

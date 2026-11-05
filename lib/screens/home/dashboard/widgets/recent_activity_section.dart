@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../../core/money.dart';
+import '../../../../ui/app_theme.dart';
+import '../../../../ui/content_rows.dart';
 import '../../../../models/session.dart';
 
 class RecentActivitySection extends StatelessWidget {
@@ -25,149 +27,67 @@ class RecentActivitySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  Icon(Icons.history, size: 20, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      'Hoạt động gần đây',
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            TextButton(
-              onPressed: onViewAllSessions,
-              child: const Text('Xem tất cả'),
-            ),
-          ],
+        SectionHeading(
+          'Phiên gần đây',
+          action: TextButton(
+            onPressed: onViewAllSessions,
+            child: const Text('Tất cả'),
+          ),
         ),
         if (recent.isEmpty)
-          Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: const Padding(
-              padding: EdgeInsets.all(16),
-              child: Center(
-                child: Text(
-                  'Chưa có phiên chi tiêu nào. Bấm "Tạo phiên" để bắt đầu chia tiền!',
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Text(
+              'Chưa có phiên nào',
+              style: TextStyle(color: AppTheme.muted),
             ),
           )
         else
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: recent.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (_, i) {
-              final session = recent[i];
-              return _SessionTile(
-                session: session,
+          for (final session in recent)
+            Material(
+              type: MaterialType.transparency,
+              child: InkWell(
                 onTap: () => onSelectSession(session),
-              );
-            },
-          ),
-      ],
-    );
-  }
-}
-
-class _SessionTile extends StatelessWidget {
-  final Session session;
-  final VoidCallback onTap;
-
-  const _SessionTile({
-    required this.session,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isOpen = session.status == SessionStatus.open;
-    final dateStr = DateFormat('dd/MM/yyyy HH:mm').format(session.createdAt);
-
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      elevation: 1,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isOpen ? Colors.orange.shade50 : Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.receipt_long,
-                  color: isOpen ? Colors.orange.shade800 : Colors.blue.shade700,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      session.title,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      dateStr,
-                      style: const TextStyle(color: Colors.grey, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    formatVnd(session.totalAmount),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: AppTheme.line)),
                   ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: isOpen ? Colors.orange.shade100 : Colors.green.shade100,
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      isOpen ? 'Đang mở' : 'Đã chốt',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: isOpen ? Colors.orange.shade900 : Colors.green.shade900,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LabelValueRow(
+                        label: Text(
+                          session.title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        value: Text(
+                          formatVnd(session.totalAmount),
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              DateFormat('dd/MM/yyyy')
+                                  .format(session.createdAt),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppTheme.muted),
+                            ),
+                          ),
+                          SessionStatusBadge(
+                            isOpen: session.status == SessionStatus.open,
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ],
-          ),
-        ),
-      ),
+            ),
+      ],
     );
   }
 }

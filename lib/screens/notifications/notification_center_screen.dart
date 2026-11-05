@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/firebase_providers.dart';
+import '../../ui/app_theme.dart';
+import '../../ui/app_tabs.dart';
 import '../../models/app_notification.dart';
 import '../../models/debt.dart';
 import '../../repositories/debt_repository.dart';
@@ -20,8 +22,16 @@ class NotificationCenterScreen extends ConsumerStatefulWidget {
 }
 
 class _NotificationCenterScreenState
-    extends ConsumerState<NotificationCenterScreen> {
+    extends ConsumerState<NotificationCenterScreen>
+    with SingleTickerProviderStateMixin {
   bool _showHidden = false;
+  late final TabController _tabs = TabController(length: 2, vsync: this);
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,34 +46,24 @@ class _NotificationCenterScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hộp thư thông báo'),
+        title: const Text('Thông báo'),
+        bottom: AppTabs(
+          controller: _tabs,
+          labels: const ['Hiện tại', 'Tất cả'],
+          onTap: (index) => setState(() => _showHidden = index == 1),
+        ),
         actions: [
           notificationsAsync.maybeWhen(
             data: (notifications) {
               final activeNotifications = notifications
                   .where((n) => !n.isRead || !n.canDismissOnRead)
                   .toList();
-              final hiddenNotifications = notifications
-                  .where((n) => n.isRead && n.canDismissOnRead)
-                  .toList();
-
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (hiddenNotifications.isNotEmpty)
-                    IconButton(
-                      icon: Icon(
-                        _showHidden ? Icons.visibility_off : Icons.history,
-                      ),
-                      tooltip: _showHidden
-                          ? 'Chỉ hiện thông báo cần xử lý'
-                          : 'Xem ${hiddenNotifications.length} thông báo đã ẩn',
-                      onPressed: () =>
-                          setState(() => _showHidden = !_showHidden),
-                    ),
                   IconButton(
                     icon: const Icon(Icons.done_all),
-                    tooltip: 'Đánh dấu tất cả đã đọc (Ẩn các thông báo đã xong)',
+                    tooltip: 'Đánh dấu đã đọc',
                     onPressed: () async {
                       final dismissableIds = activeNotifications
                           .where((n) => n.canDismissOnRead)
@@ -76,14 +76,15 @@ class _NotificationCenterScreenState
                           .read(notificationRepositoryProvider)
                           .markAllAsRead(user.uid);
                       if (context.mounted) {
-                        final hasUnpaidDebt =
-                            activeNotifications.any((n) => !n.canDismissOnRead);
+                        final hasUnpaidDebt = activeNotifications.any(
+                          (n) => !n.canDismissOnRead,
+                        );
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
                               hasUnpaidDebt
-                                  ? 'Đã ẩn các thông báo đã đọc. Khoản nợ chưa thanh toán không thể ẩn.'
-                                  : 'Đã ẩn tất cả thông báo đã đọc.',
+                                  ? 'Đã đọc. Các khoản cần xử lý vẫn được giữ lại.'
+                                  : 'Đã đánh dấu đã đọc',
                             ),
                           ),
                         );
@@ -103,85 +104,39 @@ class _NotificationCenterScreenState
         },
         child: notificationsAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.notifications_none,
-                    size: 64,
-                    color: Colors.grey.shade400,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Bạn chưa có thông báo nào.',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    e.toString().contains('permission-denied')
-                        ? 'Lưu ý: Cần Publish firestore.rules lên Firebase Console của nhóm để đồng bộ realtime.'
-                        : 'Lỗi: $e',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                  ),
-                ],
+          error: (e, _) => ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              const AppEmptyState(
+                icon: Icons.cloud_off_outlined,
+                title: 'Chưa tải được thông báo',
               ),
-            ),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () =>
+                      ref.invalidate(userNotificationsProvider(user.uid)),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Thử lại'),
+                ),
+              ),
+            ],
           ),
           data: (notifications) {
             final activeNotifications = notifications
                 .where((n) => !n.isRead || !n.canDismissOnRead)
                 .toList();
-            final hiddenNotifications = notifications
-                .where((n) => n.isRead && n.canDismissOnRead)
-                .toList();
-
-            final displayList =
-                _showHidden ? notifications : activeNotifications;
-
+            final displayList = _showHidden
+                ? notifications
+                : activeNotifications;
             if (displayList.isEmpty) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 children: [
-                  SizedBox(
-                    height: MediaQuery.of(context).size.height * 0.7,
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.notifications_off_outlined,
-                            size: 64,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            hiddenNotifications.isNotEmpty && !_showHidden
-                                ? 'Đã xử lý hết thông báo!\n(Có ${hiddenNotifications.length} thông báo đã ẩn)'
-                                : 'Bạn chưa có thông báo nào.',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 16,
-                            ),
-                          ),
-                          if (hiddenNotifications.isNotEmpty && !_showHidden) ...[
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed: () =>
-                                  setState(() => _showHidden = true),
-                              icon: const Icon(Icons.history, size: 18),
-                              label: Text(
-                                'Xem ${hiddenNotifications.length} thông báo đã ẩn',
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
+                  AppEmptyState(
+                    icon: Icons.notifications_none_rounded,
+                    title: notifications.isEmpty
+                        ? 'Chưa có thông báo'
+                        : 'Không có thông báo mới',
                   ),
                 ],
               );
@@ -189,9 +144,10 @@ class _NotificationCenterScreenState
 
             return ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
               itemCount: displayList.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
+              separatorBuilder: (_, _) =>
+                  const Divider(height: 1, color: AppTheme.line),
               itemBuilder: (context, index) {
                 final notif = displayList[index];
                 return _NotificationTile(
@@ -217,9 +173,6 @@ class _NotificationTile extends ConsumerWidget {
   });
 
   IconData _getIcon() {
-    if (!notification.canDismissOnRead) {
-      return Icons.warning_amber_rounded;
-    }
     switch (notification.type) {
       case NotificationType.debtReminder:
         return notification.title.contains('cho vay')
@@ -231,24 +184,6 @@ class _NotificationTile extends ConsumerWidget {
         return Icons.payment;
       case NotificationType.paymentConfirmed:
         return Icons.check_circle;
-    }
-  }
-
-  Color _getColor() {
-    if (!notification.canDismissOnRead) {
-      return Colors.red.shade700;
-    }
-    switch (notification.type) {
-      case NotificationType.debtReminder:
-        return notification.title.contains('cho vay')
-            ? Colors.teal.shade700
-            : Colors.orange.shade700;
-      case NotificationType.sessionClosed:
-        return Colors.blue.shade700;
-      case NotificationType.paymentPending:
-        return Colors.purple.shade700;
-      case NotificationType.paymentConfirmed:
-        return Colors.green.shade700;
     }
   }
 
@@ -325,80 +260,93 @@ class _NotificationTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final iconColor = _getColor();
-    final dateStr = DateFormat('dd/MM HH:mm').format(notification.createdAt);
-
-    return ListTile(
-      tileColor: notification.isRead
-          ? null
-          : theme.colorScheme.primaryContainer.withAlpha(25),
-      leading: CircleAvatar(
-        backgroundColor: iconColor.withAlpha(30),
-        child: Icon(_getIcon(), color: iconColor, size: 20),
-      ),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              notification.title,
-              style: TextStyle(
-                fontWeight: notification.isRead
-                    ? FontWeight.w600
-                    : FontWeight.bold,
-                fontSize: 14,
+    final dateStr = DateFormat('dd/MM · HH:mm').format(notification.createdAt);
+    final status = notification.id.startsWith('debt_confirm_')
+        ? 'Cần xác nhận'
+        : 'Cần thanh toán';
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: () => _handleTap(context, ref),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppTheme.soft,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(_getIcon(), color: AppTheme.purple, size: 20),
               ),
-            ),
-          ),
-          if (!notification.canDismissOnRead)
-            Container(
-              margin: const EdgeInsets.only(left: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.red.shade100,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.red.shade400, width: 0.8),
-              ),
-              child: Text(
-                'CHƯA TRẢ',
-                style: TextStyle(
-                  color: Colors.red.shade800,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            notification.title,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: notification.isRead
+                                  ? FontWeight.w500
+                                  : FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (!notification.isRead) ...[
+                          const SizedBox(width: 10),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6),
+                            child: Icon(
+                              Icons.circle,
+                              color: AppTheme.purple,
+                              size: 7,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      notification.body,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppTheme.muted,
+                        height: 1.5,
+                      ),
+                    ),
+                    if (!notification.canDismissOnRead) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        status,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: notification.id.startsWith('debt_confirm_')
+                              ? AppTheme.purple
+                              : AppTheme.red,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Text(
+                      dateStr,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            )
-          else if (!notification.isRead)
-            Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                shape: BoxShape.circle,
-              ),
-            ),
-        ],
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 2),
-          Text(
-            notification.body,
-            style: TextStyle(
-              fontSize: 12,
-              color: notification.isRead
-                  ? theme.colorScheme.onSurfaceVariant
-                  : null,
-            ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            dateStr,
-            style: const TextStyle(fontSize: 10, color: Colors.grey),
-          ),
-        ],
+        ),
       ),
-      onTap: () => _handleTap(context, ref),
     );
   }
 }
