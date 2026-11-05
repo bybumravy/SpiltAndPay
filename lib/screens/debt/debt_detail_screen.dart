@@ -1,10 +1,10 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../core/image_tools.dart';
-import '../../ui/app_theme.dart';
 import '../../core/money.dart';
 import '../../core/vietqr.dart';
 import '../../core/vietqr_provider.dart';
@@ -13,6 +13,8 @@ import '../../models/payment.dart';
 import '../../repositories/debt_repository.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
+import '../../ui/app_theme.dart';
+import 'widgets/bank_chooser_sheet.dart';
 
 class DebtDetailScreen extends ConsumerWidget {
   final Debt debt;
@@ -176,7 +178,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
   bool _isSaving = false;
 
   /// Lưu ảnh QR của chủ nợ vào thư viện để mở app ngân hàng quét.
-  Future<void> _saveQr() async {
+  Future<void> _saveQr({bool silent = false}) async {
     final url = widget.otherQrUrl;
     if (url == null) return;
     setState(() => _isSaving = true);
@@ -186,10 +188,12 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
           ? await renderQrPng(dynamicQr) // QR đã điền sẵn số tiền + nội dung
           : await downloadImageBytes(url);
       await saveImageToGallery(bytes, name: 'qr_${widget.otherUid}');
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Đã lưu QR'),
+            content: const Text(
+              'Đã lưu ảnh QR vào album "SplitPay" trong thư viện ảnh.',
+            ),
             duration: const Duration(seconds: 6),
             action: SnackBarAction(
               label: 'Mở thư viện',
@@ -199,7 +203,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
         );
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Không lưu được ảnh. Kiểm tra mạng và quyền ảnh.'),
@@ -249,10 +253,13 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
       }
     } catch (e) {
       if (mounted) {
+        final message = switch (e) {
+          StateError(:final message) => message,
+          FirebaseException(:final message) => message ?? 'Lỗi kết nối cơ sở dữ liệu.',
+          _ => 'Có lỗi xảy ra. Vui lòng thử lại.',
+        };
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e is StateError ? e.message : 'Có lỗi. Thử lại.'),
-          ),
+          SnackBar(content: Text(message)),
         );
       }
     } finally {
@@ -302,7 +309,7 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                 child: QrImageView(
                   data: dynamicQr,
                   version: QrVersions.auto,
-                  size: 220,
+                  size: 200,
                   backgroundColor: Colors.white,
                 ),
               ),
@@ -320,17 +327,38 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
                     const Icon(Icons.broken_image_outlined, size: 64),
               ),
             ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: _isSaving ? null : _saveQr,
-            icon: _isSaving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.download_outlined, size: 20),
-            label: const Text('Lưu QR'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.teal.shade700,
+                  ),
+                  onPressed: () {
+                    BankChooserBottomSheet.show(
+                      context,
+                      amount: widget.netAmount,
+                      onSaveQr: () => _saveQr(silent: true),
+                    );
+                  },
+                  icon: const Icon(Icons.account_balance, size: 18),
+                  label: const Text('Mở App Ngân hàng'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _isSaving ? null : () => _saveQr(silent: false),
+                icon: _isSaving
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download, size: 18),
+                label: const Text('Lưu QR'),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
         ] else
@@ -339,6 +367,15 @@ class _DebtorActionsState extends ConsumerState<_DebtorActions> {
             child: Text(
               'Chưa có QR nhận tiền',
               style: TextStyle(color: AppTheme.muted),
+            ),
+          ),
+        if (hasPending)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'Đang chờ chủ nợ xác nhận giao dịch trước.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.orange),
             ),
           ),
         FilledButton(
@@ -409,8 +446,13 @@ class _PaymentTile extends ConsumerWidget {
           );
     } catch (e) {
       if (context.mounted) {
+        final message = switch (e) {
+          StateError(:final message) => message,
+          FirebaseException(:final message) => message ?? 'Lỗi kết nối cơ sở dữ liệu.',
+          _ => 'Có lỗi xảy ra. Vui lòng thử lại.',
+        };
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Xác nhận thất bại. Thử lại.')),
+          SnackBar(content: Text(message)),
         );
       }
     }

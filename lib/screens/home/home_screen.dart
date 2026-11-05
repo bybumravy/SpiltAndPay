@@ -5,19 +5,33 @@ import '../../core/firebase_providers.dart';
 import '../../repositories/debt_repository.dart';
 import '../../ui/app_theme.dart';
 
-import 'sessions_tab.dart';
+import 'dashboard/dashboard_tab.dart';
 import 'debts_tab.dart';
 import 'profile_tab.dart';
+import 'sessions_tab.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  final int initialIndex;
+  const HomeScreen({super.key, this.initialIndex = 0});
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+  }
+
+  void _onNavigateToTab(int index) {
+    if (index >= 0 && index < 4) {
+      setState(() => _currentIndex = index);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,25 +54,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: const [SessionsTab(), DebtsTab(), ProfileTab()],
+        children: [
+          DashboardTab(onNavigateToTab: _onNavigateToTab),
+          const SessionsTab(),
+          const DebtsTab(),
+          const ProfileTab(),
+        ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (i) => setState(() => _currentIndex = i),
-        destinations: [
-          const NavigationDestination(
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: _currentIndex,
+        selectedItemColor: AppTheme.purple,
+        unselectedItemColor: AppTheme.muted,
+        selectedFontSize: 12,
+        unselectedFontSize: 12,
+        onTap: (i) => setState(() => _currentIndex = i),
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard_outlined),
+            activeIcon: Icon(Icons.dashboard),
+            label: 'Tổng quan',
+          ),
+          const BottomNavigationBarItem(
             icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
+            activeIcon: Icon(Icons.receipt_long),
             label: 'Phiên',
           ),
-          NavigationDestination(
+          BottomNavigationBarItem(
             icon: debtIcon(Icons.account_balance_wallet_outlined),
-            selectedIcon: debtIcon(Icons.account_balance_wallet),
+            activeIcon: debtIcon(Icons.account_balance_wallet),
             label: 'Công nợ',
           ),
-          const NavigationDestination(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
+            activeIcon: Icon(Icons.person),
             label: 'Hồ sơ',
           ),
         ],

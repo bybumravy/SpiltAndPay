@@ -1,0 +1,4 @@
+# Keep these files stable across checkouts and editors on different platforms.
+/firestore.rules text eol=lf
+/lib/repositories/session_repository.dart text eol=lf
+/rules_test/rules.test.js text eol=lf

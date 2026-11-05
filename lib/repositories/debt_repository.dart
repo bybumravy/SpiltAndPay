@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/firebase_providers.dart';
@@ -13,25 +14,50 @@ class DebtRepository {
       _db.collection('debts');
 
   /// Stream tất cả khoản nợ liên quan [uid] có balance != 0.
-  Stream<List<Debt>> watchUserDebts(String uid) {
-    return _debts
-        .where('participants', arrayContains: uid)
-        .snapshots()
-        .map((s) => s.docs
-            .map((d) => Debt.fromMap(d.data()))
-            .where((d) => d.balance != 0)
-            .toList());
+  /// Bổ sung cơ chế auto-retry khi gặp độ trễ đồng bộ Auth token (permission-denied thoáng qua).
+  Stream<List<Debt>> watchUserDebts(String uid) async* {
+    var retryCount = 0;
+    while (true) {
+      try {
+        await for (final s
+            in _debts.where('participants', arrayContains: uid).snapshots()) {
+          retryCount = 0;
+          yield s.docs
+              .map((d) => Debt.fromMap(d.data()))
+              .where((d) => d.balance != 0)
+              .toList();
+        }
+        break;
+      } catch (e) {
+        if (e.toString().contains('permission-denied') && retryCount < 3) {
+          retryCount++;
+          debugPrint(
+            'watchUserDebts: permission-denied transient, retrying ($retryCount/3)...',
+          );
+          await Future.delayed(const Duration(milliseconds: 600));
+          continue;
+        }
+        rethrow;
+      }
+    }
   }
 
   /// Stream payments (sub-collection) của cặp nợ [debtId].
-  Stream<List<Payment>> watchPayments(String debtId) {
-    return _debts
-        .doc(debtId)
-        .collection('payments')
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((s) =>
-            s.docs.map((d) => Payment.fromMap(d.id, d.data())).toList());
+  /// Khởi tạo danh sách rỗng và bắt lỗi (tránh crash khi cloud rules từ chối).
+  Stream<List<Payment>> watchPayments(String debtId) async* {
+    yield <Payment>[];
+    try {
+      await for (final s
+          in _debts
+              .doc(debtId)
+              .collection('payments')
+              .orderBy('createdAt', descending: true)
+              .snapshots()) {
+        yield s.docs.map((d) => Payment.fromMap(d.id, d.data())).toList();
+      }
+    } catch (e) {
+      debugPrint('watchPayments error (cloud permission): $e');
+    }
   }
 
   /// Con nợ bấm "Tôi đã chuyển": tạo payment pending cho đúng số đang nợ.
@@ -104,12 +130,11 @@ final debtRepositoryProvider = Provider<DebtRepository>((ref) {
   return DebtRepository(ref.watch(firestoreProvider));
 });
 
-final userDebtsProvider =
-    StreamProvider.family<List<Debt>, String>((ref, uid) {
+final userDebtsProvider = StreamProvider.family<List<Debt>, String>((ref, uid) {
   return ref.watch(debtRepositoryProvider).watchUserDebts(uid);
 });
 
-final paymentsProvider =
-    StreamProvider.family<List<Payment>, String>((ref, debtId) {
-  return ref.watch(debtRepositoryProvider).watchPayments(debtId);
-});
+final paymentsProvider = StreamProvider.autoDispose
+    .family<List<Payment>, String>((ref, debtId) {
+      return ref.watch(debtRepositoryProvider).watchPayments(debtId);
+    });

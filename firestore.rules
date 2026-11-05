@@ -62,6 +62,13 @@ service cloud.firestore {
         allow create, update: if isSignedIn() &&
           (acceptedInvitation(uid, contactId) || acceptedInvitation(contactId, uid));
       }
+
+      // notifications sub-collection: chính chủ đọc/xoá và cập nhật isRead
+      match /notifications/{notificationId} {
+        allow read, delete: if isOwner(uid);
+        allow update: if isOwner(uid) && onlyChanges(['isRead']);
+        allow create: if isSignedIn();
+      }
     }
 
     function acceptedInvitation(sender, recipient) {
@@ -293,7 +300,11 @@ service cloud.firestore {
                           get(sessionPath(request.resource.data.lastEntryId)).data.status == 'open' &&
                           getAfter(sessionPath(request.resource.data.lastEntryId)).data.status == 'closed' &&
                           request.resource.data.userA in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds &&
-                          request.resource.data.userB in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds)
+                          request.resource.data.userB in get(sessionPath(request.resource.data.lastEntryId)).data.memberUserIds) ||
+
+                         // (d) Chủ nợ gửi lời nhắc thanh toán: chỉ cập nhật mốc lastReminderAt
+                         (onlyChanges(['lastReminderAt']) &&
+                          request.auth.uid in resource.data.participants)
                        );
 
       allow delete: if false;

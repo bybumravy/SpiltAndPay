@@ -1,3 +1,5 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 /// Trạng thái nợ của một thành viên trong phiên.
 enum MemberStatus {
   /// Chính người tạo phiên (người trả bill) — không sinh nợ.
@@ -52,15 +54,17 @@ class SessionMember {
       userId: map['userId'] as String?,
       displayName: map['displayName'] as String? ?? '',
       isGuest: map['isGuest'] as bool? ?? false,
-      amountOwed: (map['amountOwed'] as num).toInt(),
+      amountOwed: (map['amountOwed'] as num?)?.toInt() ?? 0,
       amountPaid: (map['amountPaid'] as num?)?.toInt() ?? 0,
       status: MemberStatus.values.firstWhere(
         (s) => s.name == map['status'],
         orElse: () => MemberStatus.pending,
       ),
-      paidAt: map['paidAt'] != null
-          ? (map['paidAt'] as dynamic).toDate()
-          : null,
+      paidAt: switch (map['paidAt']) {
+        Timestamp(:final toDate) => toDate(),
+        DateTime d => d,
+        _ => null,
+      },
     );
   }
 

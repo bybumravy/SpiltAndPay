@@ -36,9 +36,9 @@ class Session {
   factory Session.fromMap(String id, Map<String, dynamic> map) {
     return Session(
       sessionId: id,
-      creatorId: map['creatorId'] as String,
+      creatorId: map['creatorId'] as String? ?? '',
       title: map['title'] as String? ?? '',
-      totalAmount: (map['totalAmount'] as num).toInt(),
+      totalAmount: (map['totalAmount'] as num?)?.toInt() ?? 0,
       splitMode: (map['splitMode'] as String?) == 'custom'
           ? SessionSplitMode.custom
           : SessionSplitMode.equal,

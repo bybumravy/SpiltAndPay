@@ -37,12 +37,41 @@
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
-
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+                <!-- Package visibility cho các ứng dụng ngân hàng phổ biến tại Việt Nam -->
+        <package android:name="com.mbmobile" />
+        <package android:name="com.VCB" />
+        <package android:name="vn.com.techcombank.bb.app" />
+        <package android:name="com.techcombank.mobile" />
+        <package android:name="com.mservice.momotransfer" />
+        <package android:name="com.vnpay.bidv" />
+        <package android:name="com.tpb.mb.gprsandroid" />
+        <package android:name="com.vnpay.vpbankonline" />
+        <package android:name="mobile.acb.com.vn" />
+        <package android:name="vn.com.vng.zalopay" />
+        <package android:name="com.bplus.vtpay" />
+        <!-- Intent schemes cho các app ngân hàng (chuẩn VietQR & OS Package) -->
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="mbbank" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="mbmobile" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="vietcombankmobile" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="vcb" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="tcb" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="techcombank" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="momo" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="bidvsmartbanking" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="bidv" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="hydro" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="tpbank" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="vpbankneo" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="vpbank" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="acbone" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="acb" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="zalopay" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="viettelmoney" /></intent>
     </queries>
 </manifest>

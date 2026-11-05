@@ -3,11 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/firebase_providers.dart';
 import '../../core/money.dart';
-import '../../ui/app_theme.dart';
-import '../../ui/content_rows.dart';
-import '../../ui/app_tabs.dart';
 import '../../models/session.dart';
 import '../../repositories/session_repository.dart';
+import '../../ui/app_tabs.dart';
+import '../../ui/app_theme.dart';
+import '../../ui/content_rows.dart';
 import '../session/create_session_screen.dart';
 import '../session/session_detail_screen.dart';
 
@@ -23,6 +23,7 @@ class SessionsTab extends ConsumerStatefulWidget {
 class _SessionsTabState extends ConsumerState<SessionsTab>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
+
   @override
   void initState() {
     super.initState();
@@ -68,7 +69,12 @@ class _SessionsTabState extends ConsumerState<SessionsTab>
                         color: Colors.red,
                       ),
                       const SizedBox(height: 12),
-                      Text('Lỗi: $e', textAlign: TextAlign.center),
+                      Text(
+                        e.toString().toLowerCase().contains('permission-denied')
+                            ? 'Chưa thể tải danh sách phiên do đang đồng bộ kết nối. Vui lòng thử lại.'
+                            : 'Lỗi: $e',
+                        textAlign: TextAlign.center,
+                      ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         onPressed: () =>

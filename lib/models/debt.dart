@@ -18,12 +18,38 @@ class Debt {
 
   final DateTime updatedAt;
 
+  /// ID của giao dịch thanh toán đang chờ xác nhận (nếu có).
+  final String? pendingPaymentId;
+
   const Debt({
     required this.userA,
     required this.userB,
     required this.balance,
     required this.updatedAt,
+    this.pendingPaymentId,
   });
+
+  /// Kiểm tra khoản nợ có giao dịch thanh toán đang chờ chủ nợ xác nhận hay không
+  bool get hasPendingPayment =>
+      pendingPaymentId != null && pendingPaymentId!.isNotEmpty;
+
+  Debt copyWith({
+    String? userA,
+    String? userB,
+    int? balance,
+    DateTime? updatedAt,
+    String? pendingPaymentId,
+    bool clearPendingPayment = false,
+  }) {
+    return Debt(
+      userA: userA ?? this.userA,
+      userB: userB ?? this.userB,
+      balance: balance ?? this.balance,
+      updatedAt: updatedAt ?? this.updatedAt,
+      pendingPaymentId:
+          clearPendingPayment ? null : (pendingPaymentId ?? this.pendingPaymentId),
+    );
+  }
 
   /// Tạo document ID ổn định từ 2 uid.
   static String docId(String uid1, String uid2) {
@@ -57,21 +83,28 @@ class Debt {
 
   factory Debt.fromMap(Map<String, dynamic> map) {
     return Debt(
-      userA: map['userA'] as String,
-      userB: map['userB'] as String,
-      balance: (map['balance'] as num).toInt(),
-      updatedAt: (map['updatedAt'] as Timestamp).toDate(),
+      userA: map['userA'] as String? ?? '',
+      userB: map['userB'] as String? ?? '',
+      balance: (map['balance'] as num?)?.toInt() ?? 0,
+      updatedAt: map['updatedAt'] is Timestamp
+          ? (map['updatedAt'] as Timestamp).toDate()
+          : DateTime.now(),
+      pendingPaymentId: map['pendingPaymentId'] as String?,
     );
   }
 
   Map<String, dynamic> toMap() {
-    return {
+    final data = <String, dynamic>{
       'userA': userA,
       'userB': userB,
       'participants': [userA, userB],
       'balance': balance,
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
+    if (pendingPaymentId != null) {
+      data['pendingPaymentId'] = pendingPaymentId;
+    }
+    return data;
   }
 }
 
