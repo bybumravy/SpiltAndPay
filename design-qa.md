@@ -134,3 +134,9 @@ Validation: full Flutter suite 118 tests passed; focused dashboard/inbox render 
 Limits: deterministic Flutter renderer fixtures, not a live Firestore notification-delivery test. Native Meizu layout, screen-reader traversal, and live bank app handoff were not exercised in this pass. No claim of full accessibility compliance.
 
 Greeting follow-up: replaced the isolated greeting line with a muted salutation above a larger display name and a 52px profile avatar. Profile images fall back to the shared initial avatar while loading or on error; blank names fall back to “Bạn”. Recaptured dashboard at both tested viewports; focused visual/interaction fixture and analyzer passed.
+
+## Guest receivables and QR sharing — 2026-11-05
+
+Implemented a session-authorized aggregate of closed-session guest obligations for the actual payer. Pending guest amounts contribute to both debt and dashboard receivable totals. The debt list displays guest/session/status, including collected history. Opening an item shows the payer's dynamic VietQR, amount, native image sharing, and a confirmed collection action. The existing session obligation row also opens this payment sheet. Sharing does not mark an obligation collected.
+
+Validation: Flutter suite 120 tests passed, including payer filtering, collected amounts excluded from totals, guest-only debt list, missing QR, cancel collection, and generated QR beneficiary/amount. Analyzer clean; Android debug build succeeded. Inspected `build/ui-preview/guest-receivables.png`. A modal capture was rejected as blank; modal behavior was checked via widget assertions. Actual delivery through Zalo/Messenger and live Firestore collection confirmation were not exercised by fixtures. Existing legacy guest-member controls remain; aggregation uses guest obligation documents produced by trusted session close.

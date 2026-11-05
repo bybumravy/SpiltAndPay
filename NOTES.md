@@ -1,3 +1,14 @@
+## Dev note — Công nợ khách vãng lai và chia sẻ QR (2026-11-05)
+
+Trạng thái: đã triển khai phần Công nợ khách vãng lai và chia sẻ QR.
+
+- Khoản cần thu của khách vãng lai phải xuất hiện trong màn Công nợ của người thực tế được nhận tiền, không chỉ trong chi tiết phiên. Hiển thị tên khách, phiên liên quan, số tiền và trạng thái chưa thu/đã thu.
+- Dùng guest obligation hiện có làm nguồn dữ liệu; không tạo tài khoản giả hoặc cộng khoản khách vào debt theo cặp UID. Không gộp hai khách chỉ vì trùng tên và không cộng trùng khoản đã ghi từ phiên.
+- Mỗi khoản có QR nhận tiền của đúng người được thu, điền sẵn số tiền còn phải thu và nội dung nhận diện khoản/phiên. Nếu chưa có QR nhận tiền, cho người nhận bổ sung; không dùng QR của người tạo phiên khi họ không phải người được thu.
+- Thêm nút chia sẻ ảnh QR kèm số tiền và nội dung qua bảng chia sẻ hệ thống để người dùng chọn Zalo, Messenger hoặc app nhắn tin đã cài. Không tự gửi tin hay tự chọn người nhận; hủy chia sẻ không đổi trạng thái khoản thu.
+- Chia sẻ hoặc lưu QR không có nghĩa đã thu tiền. Chỉ người có quyền thu xác nhận đã nhận tiền qua luồng guest obligation hiện có; trạng thái và số tổng cập nhật đồng nhất ở Công nợ và chi tiết phiên. Xác nhận lại không được ghi nhận tiền lần hai.
+- Kiểm tra các trường hợp: nhiều người ứng tiền, khách trùng tên ở các phiên khác nhau, chưa có QR, không lưu/chia sẻ được ảnh, hủy chia sẻ, xác nhận thu và tải lại app. Không hiển thị khoản từ phiên mở thành khoản công nợ đã chốt.
+
 # Ghi chú tiến độ Split & Pay
 
 Cập nhật: 2026-10-18

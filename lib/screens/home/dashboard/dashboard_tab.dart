@@ -7,6 +7,7 @@ import '../../../ui/app_tabs.dart';
 import '../../../ui/app_theme.dart';
 
 import '../../../repositories/debt_repository.dart';
+import '../../../repositories/guest_receivables_provider.dart';
 import '../../../repositories/session_repository.dart';
 import '../../../repositories/user_repository.dart';
 import '../../debt/debt_detail_screen.dart';
@@ -33,6 +34,7 @@ class DashboardTab extends ConsumerWidget {
     if (user == null) return const SizedBox.shrink();
 
     final userProfileAsync = ref.watch(currentUserProvider(user.uid));
+    final guestsAsync = ref.watch(guestReceivablesProvider(user.uid));
     final debtsAsync = ref.watch(userDebtsProvider(user.uid));
     final sessionsAsync = ref.watch(dashboardSessionsProvider(user.uid));
 
@@ -68,7 +70,9 @@ class DashboardTab extends ConsumerWidget {
           data: (debts) {
             // Tính tổng nợ và tổng được nợ
             var totalOwed = 0;
-            var totalReceivable = 0;
+            var totalReceivable = pendingGuestTotal(
+              guestsAsync.valueOrNull ?? [],
+            );
 
             for (final d in debts) {
               final amount = d.amountOwedBy(user.uid);
@@ -137,6 +141,13 @@ class DashboardTab extends ConsumerWidget {
                   totalOwed: totalOwed,
                   totalReceivable: totalReceivable,
                 ),
+                if (guestsAsync.isLoading) const LinearProgressIndicator(),
+                if (guestsAsync.hasError)
+                  TextButton(
+                    onPressed: () =>
+                        ref.invalidate(guestReceivablesProvider(user.uid)),
+                    child: const Text('Chưa tải được khoản khách nợ. Thử lại'),
+                  ),
                 const SizedBox(height: 16),
 
                 // 2. Thao tác nhanh

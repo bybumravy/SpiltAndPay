@@ -14,6 +14,8 @@ import '../../core/vietqr_provider.dart';
 import '../../models/expense.dart';
 import '../../models/session.dart';
 import '../../repositories/guest_obligation_repository.dart';
+import '../../repositories/guest_receivables_provider.dart';
+import '../debt/widgets/guest_receivable_tile.dart';
 import '../../models/session_member.dart';
 import '../../repositories/session_repository.dart';
 import '../../repositories/user_repository.dart';
@@ -284,6 +286,7 @@ class SessionDetailScreen extends ConsumerWidget {
               members: members,
               currentUid: currentUid,
               sessionId: currentSession.sessionId,
+              sessionTitle: currentSession.title,
             ),
           ],
         ),
@@ -497,12 +500,14 @@ class _GuestObligationSection extends ConsumerStatefulWidget {
   final List<SessionMember> members;
   final String currentUid;
   final String sessionId;
+  final String sessionTitle;
 
   const _GuestObligationSection({
     required this.obligationsAsync,
     required this.members,
     required this.currentUid,
     required this.sessionId,
+    required this.sessionTitle,
   });
 
   @override
@@ -561,6 +566,16 @@ class _GuestObligationSectionState
           for (final obligation in obligations)
             ListTile(
               title: Text(guests[obligation.guestMemberId] ?? 'Khách'),
+              onTap: obligation.payerId == widget.currentUid
+                  ? () => GuestReceivableTile.show(
+                      context,
+                      GuestReceivable(
+                        obligation: obligation,
+                        guestName: guests[obligation.guestMemberId] ?? 'Khách',
+                        sessionTitle: widget.sessionTitle,
+                      ),
+                    )
+                  : null,
               subtitle: Text(
                 'Người thu: ${payerNames[obligation.payerId] ?? obligation.payerId} · '
                 '${formatVnd(obligation.amount)} · '

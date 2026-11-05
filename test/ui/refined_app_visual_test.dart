@@ -17,6 +17,10 @@ import 'package:splitpay/core/bill_ocr.dart';
 import 'package:splitpay/core/gemini_bill_scanner.dart';
 import 'package:splitpay/screens/session/batch_bill_screen.dart';
 import 'package:splitpay/models/app_user.dart';
+import 'package:splitpay/screens/debt/widgets/guest_receivable_tile.dart';
+import 'package:splitpay/core/vietqr.dart';
+import 'package:splitpay/core/vietqr_provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:splitpay/models/app_notification.dart';
 import 'package:splitpay/repositories/notification_repository.dart';
 import 'package:splitpay/screens/notifications/notification_center_screen.dart';
@@ -35,6 +39,7 @@ import 'package:splitpay/screens/auth/qr_onboarding_screen.dart';
 import 'package:splitpay/screens/debt/debt_detail_screen.dart';
 import 'package:splitpay/screens/friends/add_friend_screen.dart';
 import 'package:splitpay/screens/home/home_screen.dart';
+import 'package:splitpay/screens/home/debts_tab.dart';
 import 'package:splitpay/screens/session/create_session_screen.dart';
 import 'package:splitpay/screens/session/session_detail_screen.dart';
 import 'package:splitpay/ui/app_theme.dart';
@@ -184,6 +189,8 @@ Future<void> pumpScreen(
   Map<String, AppUser>? previewUsers,
   List<AppNotification> previewNotifications = const [],
   List<Session>? previewSessions,
+  List<GuestObligation> previewGuestObligations = const [],
+  String? previewQrPayload,
   bool notificationError = false,
   NotificationRepository? previewNotificationRepository,
 }) async {
@@ -200,6 +207,9 @@ Future<void> pumpScreen(
     ProviderScope(
       overrides: [
         authProvider.overrideWithValue(_Auth()),
+        if (previewQrPayload != null)
+          staticQrPayloadProvider('https://example.com/qr.png')
+              .overrideWith((ref) async => previewQrPayload),
         userNotificationsProvider('hoang').overrideWith(
           (ref) => notificationError
               ? Stream<List<AppNotification>>.error(
@@ -227,7 +237,7 @@ Future<void> pumpScreen(
         sessionExpensesProvider('dalat')
             .overrideWith((ref) => Stream.value(previewExpenses ?? expenses)),
         sessionGuestObligationsProvider('dalat')
-            .overrideWith((ref) => Stream.value([])),
+            .overrideWith((ref) => Stream.value(previewGuestObligations)),
         userDebtsProvider('hoang')
             .overrideWith((ref) => Stream.value(previewDebts ?? debts)),
         paymentsProvider('hoang_linh')
@@ -451,6 +461,117 @@ void main() {
     expect(target, 1);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'guest receivable appears without account debts and opens payment sharing',
+    (tester) async {
+      addTearDown(() {
+        tester.view.resetDevicePixelRatio();
+        tester.binding.setSurfaceSize(null);
+      });
+      final closed = Session(
+        sessionId: 'dalat',
+        creatorId: 'nam',
+        title: 'Đà Lạt',
+        totalAmount: 125000,
+        splitMode: SessionSplitMode.equal,
+        status: SessionStatus.closed,
+        memberUserIds: ['hoang', 'nam'],
+        createdAt: DateTime(2026),
+      );
+      await pumpScreen(
+        tester,
+        const HomeScreen(initialIndex: 2),
+        previewSession: closed,
+        previewDebts: [],
+        previewMembers: [
+          const SessionMember(
+            memberId: 'guest',
+            userId: null,
+            displayName: 'Khách An',
+            isGuest: true,
+            amountOwed: 125000,
+            status: MemberStatus.pending,
+          ),
+        ],
+        previewGuestObligations: [
+          const GuestObligation(
+            obligationId: 'guest-hoang',
+            sessionId: 'dalat',
+            payerId: 'hoang',
+            guestMemberId: 'guest',
+            amount: 125000,
+          ),
+        ],
+      );
+      expect(find.text('Không có công nợ nào'), findsNothing);
+      expect(find.text('Khách An'), findsOneWidget);
+      await capture(tester, 'guest-receivables');
+      await tester.tap(find.byType(GuestReceivableTile));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Thêm QR nhận tiền trong Hồ sơ để chia sẻ.'),
+        findsOneWidget,
+      );
+      expect(find.text('Chia sẻ QR'), findsOneWidget);
+      expect(find.text('Xác nhận đã thu'), findsOneWidget);
+      await tester.tap(find.text('Xác nhận đã thu'));
+      await tester.pumpAndSettle();
+      expect(find.text('Xác nhận đã thu?'), findsOneWidget);
+      await tester.tap(find.text('Hủy'));
+      await tester.pumpAndSettle();
+      expect(find.text('Xác nhận đã thu?'), findsNothing);
+      expect(tester.takeException(), isNull);
+      Navigator.of(tester.element(find.text('Xác nhận đã thu'))).pop();
+      await tester.pumpAndSettle();
+      String tlv(String key, String value) =>
+          '$key${value.length.toString().padLeft(2, '0')}$value';
+      final beneficiary = '${tlv('00', '970436')}${tlv('01', '0123456789')}';
+      final merchant =
+          '${tlv('00', 'A000000727')}${tlv('01', beneficiary)}${tlv('02', 'QRIBFTTA')}';
+      final body = '000201010211${tlv('38', merchant)}53037045802VN6304';
+      final payload = '$body${crc16ForTest(body)}';
+      await pumpScreen(
+        tester,
+        const DebtsTab(),
+        previewSession: closed,
+        previewDebts: [],
+        previewQrPayload: payload,
+        previewUsers: {
+          'hoang': const AppUser(
+            uid: 'hoang',
+            name: 'Hoàng',
+            email: 'hoang@example.com',
+            qrImageUrl: 'https://example.com/qr.png',
+          ),
+        },
+        previewGuestObligations: [
+          const GuestObligation(
+            obligationId: 'guest-hoang',
+            sessionId: 'dalat',
+            payerId: 'hoang',
+            guestMemberId: 'guest',
+            amount: 125000,
+          ),
+        ],
+      );
+      await tester.tap(find.byType(GuestReceivableTile));
+      await tester.pumpAndSettle();
+      final qr = tester.widget<QrImageView>(find.byType(QrImageView));
+      final qrPayload = (qr.key! as ValueKey<String>).value;
+      expect(qrPayload, contains('5406125000'));
+      expect(parseVietQr(qrPayload).account, '0123456789');
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'Chia sẻ QR'),
+            )
+            .onPressed,
+        isNotNull,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('preview primary screens and navigation at phone size', (
     tester,
